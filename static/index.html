@@ -1,0 +1,1309 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ClimateAI: Demanda de Climatización y Resiliencia Energética Urbana</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Leaflet CSS & JS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <!-- Chart.js CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
+
+    <style>
+        * {
+            font-family: 'Plus Jakarta Sans', sans-serif;
+        }
+        .font-mono {
+            font-family: 'JetBrains Mono', monospace;
+        }
+        .glass-panel {
+            background: rgba(11, 18, 33, 0.88);
+            backdrop-filter: blur(18px);
+            -webkit-backdrop-filter: blur(18px);
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            box-shadow: 0 16px 45px 0 rgba(0, 0, 0, 0.65);
+        }
+        .custom-scrollbar::-webkit-scrollbar {
+            width: 5px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-track {
+            background: rgba(15, 23, 42, 0.5);
+            border-radius: 4px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background: rgba(255, 255, 255, 0.2);
+            border-radius: 4px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+            background: rgba(255, 255, 255, 0.4);
+        }
+        .leaflet-container {
+            background: #040711 !important;
+        }
+        input[type=range] {
+            -webkit-appearance: none;
+            background: transparent;
+        }
+        input[type=range]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            height: 18px;
+            width: 18px;
+            border-radius: 50%;
+            background: #38bdf8;
+            cursor: pointer;
+            box-shadow: 0 0 12px #38bdf8;
+            border: 2px solid white;
+            margin-top: -6px;
+        }
+        input[type=range]::-webkit-slider-runnable-track {
+            height: 6px;
+            background: #1e293b;
+            border-radius: 3px;
+        }
+        @keyframes pulse-ring {
+            0% { transform: scale(0.95); opacity: 0.8; }
+            50% { transform: scale(1.3); opacity: 0.2; }
+            100% { transform: scale(0.95); opacity: 0.8; }
+        }
+        .pulse-beacon {
+            animation: pulse-ring 2s infinite ease-in-out;
+        }
+        /* Cursor Tooltip estilo Ventusky */
+        #cursor-temp-tooltip {
+            position: absolute;
+            pointer-events: none;
+            z-index: 2000;
+            display: none;
+            transform: translate(12px, -50%);
+            transition: opacity 0.1s ease;
+        }
+    </style>
+</head>
+<body id="app-container" class="h-screen w-screen overflow-hidden bg-slate-950 text-slate-100 flex flex-col md:flex-row relative select-none">
+
+    <!-- SECCIÓN IZQUIERDA: MAPA SATELITAL Y LÍNEA DE TIEMPO (REDIMENSIONABLE) -->
+    <div id="map-container" class="relative w-full md:w-[65%] h-[54vh] md:h-full z-0 flex flex-col flex-1 overflow-hidden">
+        
+        <!-- TOOLTIP FLOTANTE EN CURSOR (ESTILO VENTUSKY / WINDY) -->
+        <div id="cursor-temp-tooltip" class="glass-panel px-2.5 py-1.5 rounded-xl border border-cyan-500/40 shadow-2xl flex items-center gap-2 pointer-events-none">
+            <span class="w-2.5 h-2.5 rounded-full bg-cyan-400 animate-pulse"></span>
+            <div class="flex flex-col">
+                <div class="flex items-baseline gap-1">
+                    <span id="cursor-temp-val" class="text-xs font-black font-mono text-cyan-300">--</span>
+                    <span id="cursor-temp-unit" class="text-[10px] font-bold text-slate-400">°C</span>
+                </div>
+                <span id="cursor-coords-val" class="text-[9px] font-mono text-slate-400">Lat --, Lon --</span>
+            </div>
+        </div>
+
+        <!-- Contenedor del Mapa Leaflet -->
+        <div id="map" class="w-full flex-1"></div>
+
+        <!-- Header Flotante: Nombre del Proyecto y Estado -->
+        <div class="absolute top-4 left-4 z-[1000] glass-panel px-4 py-2.5 rounded-2xl flex items-center space-x-3 pointer-events-auto">
+            <div class="relative flex h-3.5 w-3.5">
+                <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-cyan-400 opacity-75"></span>
+                <span class="relative inline-flex rounded-full h-3.5 w-3.5 bg-cyan-500"></span>
+            </div>
+            <div>
+                <h1 class="text-xs md:text-sm font-extrabold tracking-wide text-white uppercase flex items-center gap-2">
+                    <span>ClimateAI</span>
+                    <span class="text-[9px] bg-sky-500/20 text-sky-300 border border-sky-500/40 px-1.5 py-0.5 rounded font-mono">RESILIENCIA ENERGÉTICA</span>
+                </h1>
+                <p class="text-[10px] text-slate-400">Demanda de Climatización Urbana &bull; ASHRAE CDD (Base 18°C)</p>
+            </div>
+        </div>
+
+        <!-- Selector de Unidad (°C / °F / K) en la parte superior derecha del mapa -->
+        <div class="absolute top-4 right-14 z-[1000] glass-panel p-1 rounded-xl flex items-center space-x-1 pointer-events-auto shadow-lg">
+            <button onclick="setUnidad('C')" id="btn-unit-C" class="px-2.5 py-1 text-xs font-bold rounded-lg transition-all bg-sky-500 text-white shadow">
+                °C
+            </button>
+            <button onclick="setUnidad('F')" id="btn-unit-F" class="px-2.5 py-1 text-xs font-bold rounded-lg transition-all text-slate-400 hover:text-white">
+                °F
+            </button>
+            <button onclick="setUnidad('K')" id="btn-unit-K" class="px-2.5 py-1 text-xs font-bold rounded-lg transition-all text-slate-400 hover:text-white">
+                K
+            </button>
+        </div>
+
+        <!-- Leyenda Térmica Global Estilo Ventusky / Windy -->
+        <div class="absolute bottom-20 left-4 z-[1000] glass-panel p-3.5 rounded-2xl pointer-events-auto max-w-xs hidden sm:block">
+            <div class="flex items-center justify-between mb-1.5">
+                <span class="text-xs font-bold text-slate-100 flex items-center gap-1.5">
+                    <span>🌡️</span>
+                    <span>Campo Térmico Continuo</span>
+                </span>
+                <span id="legend-unit-tag" class="text-[10px] font-mono text-cyan-400 bg-cyan-950/80 px-1.5 py-0.5 rounded border border-cyan-800">°C</span>
+            </div>
+            <!-- Gradiente continuo Ventusky: Azul -> Cyan -> Verde -> Amarillo -> Naranja -> Rojo -> Carmesí -->
+            <div class="h-3 w-56 rounded-full shadow-inner border border-white/20" style="background: linear-gradient(to right, #0011bb 0%, #0066ff 16%, #00e1ff 32%, #00ff66 48%, #ffee00 64%, #ff6600 80%, #ee0000 90%, #660022 100%);"></div>
+            <div class="flex justify-between text-[10px] text-slate-300 mt-1.5 font-mono">
+                <span id="leg-temp-0">&lt;0°C</span>
+                <span id="leg-temp-15">15°C</span>
+                <span id="leg-temp-25">25°C</span>
+                <span id="leg-temp-35">&gt;35°C</span>
+            </div>
+            <div class="flex justify-between text-[9px] text-slate-400 mt-0.5">
+                <span>Frío</span>
+                <span>Fresco</span>
+                <span>Templado</span>
+                <span class="text-red-400 font-bold">Extremo</span>
+            </div>
+        </div>
+
+        <!-- BARRA INFERIOR DEL TIMELINE SCRUBBER -->
+        <div class="absolute bottom-3 left-4 right-4 z-[1000] glass-panel px-4 py-2.5 rounded-2xl flex flex-col md:flex-row items-center gap-3 pointer-events-auto">
+            <!-- Botones de Control -->
+            <div class="flex items-center gap-1.5 shrink-0">
+                <button onclick="irAHoy()" title="Ir a Fecha Actual" class="px-2.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-cyan-400 border border-slate-700 font-bold text-xs flex items-center gap-1 transition-all shadow">
+                    <span>📅</span>
+                    <span>Hoy</span>
+                </button>
+                <button onclick="stepYear(-5)" title="-5 Años" class="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 transition-colors">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
+                </button>
+                <button id="btn-play" onclick="togglePlay()" class="px-3 py-1.5 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white font-bold text-xs flex items-center gap-1 transition-all shadow-lg shadow-cyan-600/30">
+                    <span id="play-icon">▶</span>
+                    <span id="play-text">Play</span>
+                </button>
+                <button onclick="stepYear(5)" title="+5 Años" class="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 transition-colors">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+                </button>
+            </div>
+
+            <!-- Año actual y badge de periodo -->
+            <div class="flex items-center gap-2 shrink-0">
+                <span id="current-year-badge" class="text-lg md:text-xl font-extrabold font-mono text-cyan-400 bg-slate-900/90 border border-cyan-500/40 px-3 py-0.5 rounded-xl">
+                    --
+                </span>
+                <span id="status-periodo" class="text-[10px] font-bold uppercase px-2 py-0.5 rounded-md bg-emerald-950 text-emerald-400 border border-emerald-800">
+                    Sincronizando
+                </span>
+            </div>
+
+            <!-- Slider de Años (1850 hasta 2050) -->
+            <div class="flex-1 w-full flex items-center gap-2">
+                <span class="text-[11px] font-mono text-slate-400">1850</span>
+                <input type="range" id="year-slider" min="1850" max="2050" value="2026" step="1" oninput="updateHeatmapForYear(this.value)" class="flex-1 w-full cursor-pointer">
+                <span class="text-[11px] font-mono text-amber-400 font-bold">2050</span>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- BARRA DIVISORA REDIMENSIONABLE (DRAG SPLITTER) -->
+    <div id="drag-splitter" class="hidden md:flex w-2 hover:w-2.5 h-full bg-slate-800/80 hover:bg-sky-400 cursor-col-resize z-50 items-center justify-center shrink-0 border-x border-slate-700/50" title="Arrastra para cambiar el tamaño del panel (hasta 50%)">
+        <div class="w-0.5 h-8 bg-slate-500 rounded-full"></div>
+    </div>
+
+    <!-- SECCIÓN DERECHA: SOPORTE PARA LA TOMA DE DECISIONES (REDIMENSIONABLE HASTA 50%) -->
+    <div id="sidebar-container" class="w-full md:w-[35%] h-[46vh] md:h-full flex flex-col p-3 md:p-3.5 gap-2.5 z-10 overflow-hidden bg-slate-900/80 backdrop-blur-md border-l border-slate-800 shrink-0">
+        
+        <!-- PANEL SUPERIOR DERECHO: FICHA DE VULNERABILIDAD Y ESTRÉS ENERGÉTICO (48% del alto) -->
+        <div class="glass-panel rounded-2xl p-3.5 flex flex-col justify-between shrink-0 h-[48%]">
+            <div>
+                <!-- Header con Selector de Ciudad y Semáforo Destacado -->
+                <div class="flex items-center justify-between pb-2 border-b border-slate-700/60 gap-2">
+                    <div class="flex items-center gap-1.5 min-w-0 flex-1">
+                        <select id="city-selector" onchange="seleccionarCiudad(this.value)" class="bg-slate-800 text-slate-100 text-xs rounded-xl px-2.5 py-1.5 border border-slate-700 focus:outline-none focus:border-cyan-500 w-full truncate font-semibold">
+                            <option value="">Vista Global (Consolidado Urbano)</option>
+                        </select>
+                    </div>
+
+                    <button id="btn-reset-city" onclick="resetCiudad()" class="hidden text-[11px] bg-slate-800 hover:bg-slate-700 text-cyan-300 border border-slate-700 px-2 py-1 rounded-lg transition-all shrink-0">
+                        ↺ Global
+                    </button>
+                </div>
+
+                <!-- Insignia de Semáforo de Riesgo Urbano -->
+                <div class="mt-2.5 flex items-center justify-between bg-slate-950/60 border border-slate-800 p-2 rounded-xl">
+                    <div class="flex items-center gap-2">
+                        <span id="semaforo-dot" class="w-3.5 h-3.5 rounded-full bg-red-500 shadow-md shadow-red-500/50"></span>
+                        <div>
+                            <span id="semaforo-etiqueta" class="text-xs font-black tracking-wide text-red-400 block font-mono">
+                                [ALTO RIESGO CRÍTICO]
+                            </span>
+                            <span id="semaforo-sub" class="text-[10px] text-slate-400">Horizonte de Proyección 2040</span>
+                        </div>
+                    </div>
+                    <button onclick="exportarFichaTecnica()" class="text-[10px] font-bold bg-cyan-950/80 hover:bg-cyan-900 text-cyan-300 border border-cyan-800 px-2 py-1 rounded-lg transition-all flex items-center gap-1 shadow-sm">
+                        <span>📥</span>
+                        <span>Exportar Ficha</span>
+                    </button>
+                </div>
+
+                <!-- Grid de Métricas de Ingeniería Energética -->
+                <div class="grid grid-cols-3 gap-2 mt-2.5">
+                    <!-- Métrica 1: Aumento Térmico Estimado (Delta 2040) -->
+                    <div class="bg-red-950/20 border border-red-500/25 rounded-xl p-2 flex flex-col justify-between">
+                        <span class="text-[10px] text-red-300/80 font-medium">Aumento 2040</span>
+                        <div class="text-lg font-black text-red-400 flex items-baseline gap-0.5 mt-0.5">
+                            <span id="kpi-delta-temp">--</span><span class="text-[10px] font-semibold unit-label">°C</span>
+                        </div>
+                        <span class="text-[9px] text-slate-400 truncate">Sobre T. Actual</span>
+                    </div>
+
+                    <!-- Métrica 2: CDD Proyectado y % Aumento Refrigeración -->
+                    <div class="bg-amber-950/20 border border-amber-500/25 rounded-xl p-2 flex flex-col justify-between">
+                        <span class="text-[10px] text-amber-300/80 font-medium">Refrigeración CDD</span>
+                        <div class="text-lg font-black text-amber-400 flex items-baseline gap-0.5 mt-0.5">
+                            <span id="kpi-pct-cdd">--</span><span class="text-[10px] font-semibold">%</span>
+                        </div>
+                        <span id="kpi-cdd-val" class="text-[9px] text-slate-400 truncate">CDD: --</span>
+                    </div>
+
+                    <!-- Métrica 3: Estrés en Transformadores / Red Eléctrica -->
+                    <div class="bg-sky-950/20 border border-sky-500/25 rounded-xl p-2 flex flex-col justify-between">
+                        <span class="text-[10px] text-sky-300/80 font-medium">Estrés Red</span>
+                        <div class="text-sm font-black text-sky-300 truncate mt-1" id="kpi-estres-nivel">
+                            Crítico
+                        </div>
+                        <span class="text-[9px] text-slate-400 truncate">Sobrecarga HVAC</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Footer con Ubicación y Tasa por Década -->
+            <div class="flex items-center justify-between text-[11px] text-slate-400 pt-1.5 border-t border-slate-800">
+                <span id="current-location-label" class="truncate font-semibold text-slate-200">Ubicación: Global</span>
+                <span id="kpi-calentamiento-decada" class="text-[10px] font-mono text-cyan-400 bg-cyan-950/50 px-1.5 py-0.5 rounded">-- °C/déc</span>
+            </div>
+        </div>
+
+        <!-- PANEL INFERIOR DERECHO: CATÁLOGO DE MEDIDAS PRESCRIPTIVAS Y GRÁFICA COMPARATIVA (52% del alto) -->
+        <div class="glass-panel rounded-2xl p-3 flex flex-col flex-1 min-h-0">
+            <!-- Tabs: Medidas Prescriptivas vs Gráfica CDD -->
+            <div class="flex items-center justify-between border-b border-slate-700/60 pb-1.5 mb-1.5">
+                <div class="flex space-x-1">
+                    <button id="tab-btn-rec" onclick="cambiarTabDerecha('rec')" class="px-2.5 py-1 text-xs font-bold rounded-lg bg-cyan-500/20 text-cyan-400 border border-cyan-500/40 transition-all flex items-center gap-1">
+                        <span>📋</span>
+                        <span>Plan de Acción</span>
+                    </button>
+                    <button id="tab-btn-chart" onclick="cambiarTabDerecha('chart')" class="px-2.5 py-1 text-xs font-bold rounded-lg text-slate-400 hover:text-white transition-all flex items-center gap-1">
+                        <span>📈</span>
+                        <span>Curva Térmica & CDD</span>
+                    </button>
+                </div>
+                <span id="tab-sublabel" class="text-[10px] font-mono text-slate-400">Decisión Urbana</span>
+            </div>
+
+            <!-- CONTENIDO TAB 1: CATÁLOGO DE MEDIDAS PRESCRIPTIVAS (4 PUNTOS TÉCNICOS) -->
+            <div id="tab-content-rec" class="flex-1 overflow-y-auto custom-scrollbar space-y-2 pr-1 min-h-0">
+                <div id="contenedor-medidas" class="space-y-2">
+                    <!-- Se inyecta dinámicamente -->
+                </div>
+            </div>
+
+            <!-- CONTENIDO TAB 2: GRÁFICO COMPARATIVO DUAL (TEMPERATURA + CDD) -->
+            <div id="tab-content-chart" class="flex-1 flex flex-col min-h-0 hidden">
+                <div class="flex items-center justify-between text-[10px] text-slate-300 px-1 mb-1 font-mono">
+                    <span class="flex items-center gap-1">
+                        <span class="w-2.5 h-2.5 rounded-full bg-cyan-400 inline-block"></span>
+                        Histórico
+                        <span class="w-3 h-0.5 bg-amber-400 inline-block ml-1 border-t-2 border-dashed border-amber-400"></span>
+                        Proy. 2040
+                        <span class="w-2 h-2 bg-purple-500/40 inline-block ml-1 border border-purple-400"></span>
+                        Barras CDD
+                    </span>
+                    <span id="chart-marker-year" class="text-cyan-400 font-bold bg-slate-900 px-1.5 py-0.5 rounded">2026</span>
+                </div>
+                <div class="flex-1 w-full min-h-0 relative">
+                    <canvas id="temperatureChart"></canvas>
+                </div>
+            </div>
+
+        </div>
+
+    </div>
+
+    <!-- SCRIPT DE APLICACIÓN -->
+    <script>
+        let unidadActual = 'C';
+        let currentYear = Math.min(Math.max(new Date().getFullYear(), 1850), 2040);
+        let isPlaying = false;
+        let playInterval = null;
+        let ciudadSeleccionada = '';
+        let configData = null;
+        let cityDetailData = null;
+        let markersGroup = L.layerGroup();
+        let temperatureChart = null;
+        let currentYearPuntos = [];
+        let detalleRequestToken = 0;
+        let tabActualDerecha = 'rec';
+
+        // MAPA LEAFLET ESTILO VENTUSKY / WINDY (SOPORTE BUCLE CONTINUO INFINITO / WORLD WRAP-AROUND)
+        const map = L.map('map', {
+            zoomControl: false,
+            attributionControl: true,
+            worldCopyJump: true,
+            minZoom: 2,
+            maxZoom: 18,
+            maxBoundsViscosity: 0.8
+        }).setView([20.0, 10.0], 2);
+
+        L.control.zoom({ position: 'topright' }).addTo(map);
+
+        // Crear Pane dedicado para el Heatmap y otro superior para las Fronteras/Líneas costeras
+        map.createPane('heatPane');
+        map.getPane('heatPane').style.zIndex = 400;
+
+        map.createPane('frontiersPane');
+        map.getPane('frontiersPane').style.zIndex = 500;
+        map.getPane('frontiersPane').style.pointerEvents = 'none';
+
+        // 1. Capa base OpenStreetMap 100% libre y pública con envoltura continua
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            maxZoom: 19,
+            attribution: '&copy; OpenStreetMap contributors',
+            opacity: 0.65,
+            noWrap: false
+        }).addTo(map);
+
+        // 2. Capa superior de contornos vectoriales y fronteras sobre el calor
+        L.tileLayer('https://services.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}', {
+            maxZoom: 19,
+            opacity: 0.85,
+            pane: 'frontiersPane',
+            noWrap: false
+        }).addTo(map);
+
+        markersGroup.addTo(map);
+
+        function convertirTemp(celsius, unidad = unidadActual) {
+            if (celsius === null || celsius === undefined || isNaN(celsius)) return '--';
+            const c = parseFloat(celsius);
+            if (unidad === 'F') return (c * 9/5 + 32).toFixed(1);
+            if (unidad === 'K') return (c + 273.15).toFixed(1);
+            return c.toFixed(1);
+        }
+
+        function getSimboloUnidad(unidad = unidadActual) {
+            if (unidad === 'F') return '°F';
+            if (unidad === 'K') return 'K';
+            return '°C';
+        }
+
+        function setUnidad(nuevaUnidad) {
+            unidadActual = nuevaUnidad;
+            ['C', 'F', 'K'].forEach(u => {
+                const btn = document.getElementById(`btn-unit-${u}`);
+                if (btn) {
+                    if (u === nuevaUnidad) {
+                        btn.className = "px-2.5 py-1 text-xs font-bold rounded-lg transition-all bg-sky-500 text-white shadow";
+                    } else {
+                        btn.className = "px-2.5 py-1 text-xs font-bold rounded-lg transition-all text-slate-400 hover:text-white";
+                    }
+                }
+            });
+
+            document.querySelectorAll('.unit-label').forEach(el => el.innerText = getSimboloUnidad());
+            const legendUnitTag = document.getElementById('legend-unit-tag');
+            if (legendUnitTag) legendUnitTag.innerText = getSimboloUnidad();
+
+            // Actualizar leyenda si corresponde
+            const l15 = document.getElementById('leg-temp-15');
+            const l25 = document.getElementById('leg-temp-25');
+            const l35 = document.getElementById('leg-temp-35');
+            if (l15) l15.innerText = `${convertirTemp(15)}${getSimboloUnidad()}`;
+            if (l25) l25.innerText = `${convertirTemp(25)}${getSimboloUnidad()}`;
+            if (l35) l35.innerText = `>${convertirTemp(35)}${getSimboloUnidad()}`;
+
+            // Refrescar paneles y marcadores
+            if (cityDetailData) {
+                const elCal = document.getElementById('kpi-calentamiento-decada');
+                if (elCal) elCal.innerText = `+${cityDetailData.calentamiento_decada} ${getSimboloUnidad()}/déc`;
+            }
+            if (currentYearPuntos && currentYearPuntos.length > 0) {
+                renderMarkers(currentYearPuntos);
+            }
+            actualizarGrafico();
+        }
+
+        // ESCALA CROMÁTICA METEOROLÓGICA ESTRICTA (ESTILO VENTUSKY / WINDY)
+        // Polos y frío (< 5°C): Azules y cian.
+        // Templadas (15°C a 22°C): Verde a amarillo suave.
+        // Cálidas (25°C a 30°C): Naranja a rojo.
+        // Críticas (> 33°C): Rojo profundo / Carmesí.
+        function getMeteorologicalRGB(temp) {
+            // Puntos de calibración: [temperatura °C, r, g, b, alpha]
+            const stops = [
+                { t: -25, r: 0,   g: 10,  b: 140, a: 160 }, // Frío polar extremo (Azul profundo)
+                { t: -5,  r: 0,   g: 80,  b: 220, a: 155 }, // Frío intenso (Azul royal)
+                { t: 5,   r: 0,   g: 180, b: 240, a: 145 }, // Fresco (< 5°C: Azules y cian)
+                { t: 15,  r: 34,  g: 197, b: 94,  a: 140 }, // Templado (15°C: Verde esmeralda)
+                { t: 22,  r: 250, g: 204, b: 21,  a: 145 }, // Templado suave (22°C: Amarillo suave)
+                { t: 27,  r: 249, g: 115, b: 22,  a: 155 }, // Cálido (27°C: Naranja)
+                { t: 32,  r: 239, g: 68,  b: 68,  a: 165 }, // Cálido intenso (32°C: Rojo vivo)
+                { t: 38,  r: 159, g: 18,  b: 57,  a: 180 }, // Crítico (>33°C: Carmesí / vino oscuro)
+                { t: 50,  r: 88,  g: 28,  b: 135, a: 190 }  // Extremo (>45°C: Púrpura oscuro)
+            ];
+
+            if (temp <= stops[0].t) return [stops[0].r, stops[0].g, stops[0].b, stops[0].a];
+            if (temp >= stops[stops.length - 1].t) {
+                const last = stops[stops.length - 1];
+                return [last.r, last.g, last.b, last.a];
+            }
+
+            for (let i = 0; i < stops.length - 1; i++) {
+                const s0 = stops[i];
+                const s1 = stops[i + 1];
+                if (temp >= s0.t && temp <= s1.t) {
+                    const factor = (temp - s0.t) / (s1.t - s0.t);
+                    const r = Math.round(s0.r + (s1.r - s0.r) * factor);
+                    const g = Math.round(s0.g + (s1.g - s0.g) * factor);
+                    const b = Math.round(s0.b + (s1.b - s0.b) * factor);
+                    const a = Math.round(s0.a + (s1.a - s0.a) * factor);
+                    return [r, g, b, a];
+                }
+            }
+            return [0, 180, 240, 140];
+        }
+
+        // CAPA RASTER NATIVA DE INTERPOLACIÓN ESPACIAL CONTINUA (IDW)
+        // Paso 1 y 2 Musk: Eliminamos leaflet-heat. Implementamos capa Canvas pura con escalado GPU.
+        const IDWRasterLayer = L.Layer.extend({
+            initialize: function(options) {
+                L.setOptions(this, options);
+                this._offscreenWidth = 180;  // Grilla de 2° (360° lon / 180 = 2°)
+                this._offscreenHeight = 90;  // Grilla de ~1.9° lat (-85° a 85°)
+                this._offscreenCanvas = document.createElement('canvas');
+                this._offscreenCanvas.width = this._offscreenWidth;
+                this._offscreenCanvas.height = this._offscreenHeight;
+                this._offscreenCtx = this._offscreenCanvas.getContext('2d');
+                this._puntos = [];
+            },
+
+            onAdd: function(map) {
+                this._map = map;
+                if (!this._canvas) {
+                    this._canvas = L.DomUtil.create('canvas', 'leaflet-idw-raster-layer');
+                    this._ctx = this._canvas.getContext('2d');
+                    this._canvas.style.pointerEvents = 'none';
+                    this._canvas.style.opacity = '0.78';
+                }
+
+                const pane = map.getPane(this.options.pane || 'heatPane');
+                pane.appendChild(this._canvas);
+
+                map.on('move', this._resetView, this);
+                map.on('moveend', this._resetView, this);
+                map.on('resize', this._resizeCanvas, this);
+
+                this._resizeCanvas();
+                this._resetView();
+            },
+
+            onRemove: function(map) {
+                L.DomUtil.remove(this._canvas);
+                map.off('move', this._resetView, this);
+                map.off('moveend', this._resetView, this);
+                map.off('resize', this._resizeCanvas, this);
+            },
+
+            _resizeCanvas: function() {
+                const size = this._map.getSize();
+                this._canvas.width = size.x;
+                this._canvas.height = size.y;
+            },
+
+            _resetView: function() {
+                const topLeft = this._map.containerPointToLayerPoint([0, 0]);
+                L.DomUtil.setPosition(this._canvas, topLeft);
+                this._redrawCanvas();
+            },
+
+            setPuntos: function(puntos) {
+                this._puntos = puntos || [];
+                this._computeOffscreenRaster();
+                this._redrawCanvas();
+            },
+
+            // Cálculo espacial ultrarrápido a matriz base (180x90 = 16,200 celdas)
+            // Ejecutado en < 12ms para 60 FPS en scrub de slider
+            _computeOffscreenRaster: function() {
+                const width = this._offscreenWidth;
+                const height = this._offscreenHeight;
+                const imgData = this._offscreenCtx.createImageData(width, height);
+                const data = imgData.data;
+
+                const puntos = this._puntos;
+                const numPuntos = puntos.length;
+
+                for (let y = 0; y < height; y++) {
+                    // Mapeo lineal: y=0 -> lat 85° N, y=height-1 -> lat -85° S
+                    const lat = 85 - (y / (height - 1)) * 170;
+                    const latRad = (lat * Math.PI) / 180;
+                    // Fondo geoclimático natural de base según latitud
+                    const tempBaseLat = -16 + 46 * Math.pow(Math.cos(latRad), 1.35);
+
+                    for (let x = 0; x < width; x++) {
+                        // Mapeo lineal: x=0 -> lon -180°, x=width-1 -> lon +180°
+                        const lon = -180 + (x / width) * 360;
+
+                        let sumaPesos = 0;
+                        let deltaPonderado = 0;
+
+                        if (numPuntos > 0) {
+                            for (let i = 0; i < numPuntos; i++) {
+                                const p = puntos[i];
+                                const dLat = lat - p.lat;
+                                let dLon = Math.abs(lon - p.lon);
+                                if (dLon > 180) dLon = 360 - dLon;
+
+                                const distSq = (dLat * dLat) + (dLon * dLon);
+
+                                // Influencia continua acotada (radio ~32° geográficos)
+                                if (distSq < 1050) {
+                                    // IDW estándar p=2: w = 1 / d^2 (con factor de suavizado epsilon=8)
+                                    const w = 1.0 / (distSq + 8);
+                                    sumaPesos += w;
+                                    deltaPonderado += (p.temperatura - tempBaseLat) * w;
+                                }
+                            }
+                        }
+
+                        let tFinal = tempBaseLat;
+                        if (sumaPesos > 0) {
+                            tFinal += (deltaPonderado / sumaPesos) * 0.90;
+                        }
+
+                        const [r, g, b, a] = getMeteorologicalRGB(tFinal);
+                        const pixelIdx = (y * width + x) * 4;
+                        data[pixelIdx]     = r;
+                        data[pixelIdx + 1] = g;
+                        data[pixelIdx + 2] = b;
+                        data[pixelIdx + 3] = a;
+                    }
+                }
+
+                this._offscreenCtx.putImageData(imgData, 0, 0);
+            },
+
+            // Proyección del raster offscreen a la vista del viewport con interpolación bicúbica/bilineal nativa por GPU
+            _redrawCanvas: function() {
+                if (!this._map || !this._canvas) return;
+
+                const ctx = this._ctx;
+                ctx.clearRect(0, 0, this._canvas.width, this._canvas.height);
+                ctx.imageSmoothingEnabled = true;
+                ctx.imageSmoothingQuality = 'high';
+
+                // Repetir en múltiplos de 360° de longitud para soporte de bucle infinito (world wrap-around)
+                const bounds = this._map.getBounds();
+                const minLon = bounds.getWest();
+                const maxLon = bounds.getEast();
+
+                const startWorld = Math.floor((minLon + 180) / 360);
+                const endWorld = Math.floor((maxLon + 180) / 360);
+
+                for (let w = startWorld; w <= endWorld; w++) {
+                    const worldLonOffset = w * 360;
+
+                    // Proyectar esquinas geográficas de la matriz [-180, 85] a [180, -85]
+                    const nw = this._map.latLngToContainerPoint([85, -180 + worldLonOffset]);
+                    const se = this._map.latLngToContainerPoint([-85, 180 + worldLonOffset]);
+
+                    const drawX = nw.x;
+                    const drawY = nw.y;
+                    const drawW = se.x - nw.x;
+                    const drawH = se.y - nw.y;
+
+                    ctx.drawImage(
+                        this._offscreenCanvas,
+                        0, 0, this._offscreenWidth, this._offscreenHeight,
+                        drawX, drawY, drawW, drawH
+                    );
+                }
+            }
+        });
+
+        const idwRasterLayer = new IDWRasterLayer({ pane: 'heatPane' }).addTo(map);
+
+        function renderHeatmap(puntos) {
+            currentYearPuntos = puntos;
+            if (idwRasterLayer) {
+                idwRasterLayer.setPuntos(puntos);
+            }
+        }
+
+        // DETECCIÓN E INTERPOLACIÓN DE TEMPERATURA EN HOVER (CURSOR INTERACTIVO TIPO VENTUSKY / WINDY)
+        // Usa exactamente el mismo modelo matemático IDW (p=2, radio acotado, gradiente base) que IDWRasterLayer
+        function estimarTemperaturaEnCoordenadas(lat, lng) {
+            const puntos = (currentYearPuntos && currentYearPuntos.length > 0) 
+                ? currentYearPuntos 
+                : (thermalDataByYear[String(currentYear)] || []);
+
+            const latRad = (lat * Math.PI) / 180;
+            // Fondo geoclimático natural de base según latitud (idéntico a IDWRasterLayer)
+            const tempBaseLat = -16 + 46 * Math.pow(Math.cos(latRad), 1.35);
+
+            if (!puntos || puntos.length === 0) {
+                return tempBaseLat;
+            }
+
+            let sumaPesos = 0;
+            let deltaPonderado = 0;
+
+            for (let i = 0; i < puntos.length; i++) {
+                const p = puntos[i];
+                const dLat = lat - p.lat;
+                // Considerar envoltura longitudinal infinita
+                let dLon = Math.abs(lng - p.lon);
+                if (dLon > 180) dLon = 360 - dLon;
+                const distSq = (dLat * dLat) + (dLon * dLon);
+
+                if (distSq < 0.0001) {
+                    return p.temperatura;
+                }
+
+                // Influencia continua acotada (radio ~32° geográficos, idéntico a IDWRasterLayer)
+                if (distSq < 1050) {
+                    const w = 1.0 / (distSq + 8);
+                    sumaPesos += w;
+                    deltaPonderado += (p.temperatura - tempBaseLat) * w;
+                }
+            }
+
+            let tFinal = tempBaseLat;
+            if (sumaPesos > 0) {
+                tFinal += (deltaPonderado / sumaPesos) * 0.90;
+            }
+            return tFinal;
+        }
+
+        // Evento mousemove sobre el mapa para tooltip interactivo
+        const cursorTooltip = document.getElementById('cursor-temp-tooltip');
+        const cursorTempVal = document.getElementById('cursor-temp-val');
+        const cursorTempUnit = document.getElementById('cursor-temp-unit');
+        const cursorCoordsVal = document.getElementById('cursor-coords-val');
+
+        map.on('mousemove', function(e) {
+            const lat = e.latlng.lat;
+            let lng = e.latlng.lng;
+            // Normalizar longitud entre -180 y 180
+            lng = ((lng + 180) % 360 + 360) % 360 - 180;
+
+            const tempEstimada = estimarTemperaturaEnCoordenadas(lat, lng);
+
+            if (tempEstimada !== null) {
+                const tempConvertida = convertirTemp(tempEstimada);
+                cursorTempVal.innerText = tempConvertida;
+                cursorTempUnit.innerText = getSimboloUnidad();
+                cursorCoordsVal.innerText = `${lat.toFixed(1)}°, ${lng.toFixed(1)}°`;
+
+                // Posicionar tooltip en pantalla
+                cursorTooltip.style.left = `${e.containerPoint.x + 8}px`;
+                cursorTooltip.style.top = `${e.containerPoint.y - 12}px`;
+                cursorTooltip.style.display = 'flex';
+            } else {
+                cursorTooltip.style.display = 'none';
+            }
+        });
+
+        map.on('mouseout', function() {
+            cursorTooltip.style.display = 'none';
+        });
+
+        // NORMALIZACIÓN DEL CONTRATO DE DATOS: todas las capas consumen p.temperatura
+        function normalizarPuntos(puntos) {
+            if (!puntos) return [];
+            for (let i = 0; i < puntos.length; i++) {
+                const p = puntos[i];
+                if (p.temperatura === undefined || p.temperatura === null) p.temperatura = p.temp;
+            }
+            return puntos;
+        }
+
+        // MARCADORES CON SEMÁFORO DE RIESGO (PERSISTENTES: se crean una sola vez, luego solo se actualiza el texto)
+        const markersByCity = {};
+
+        function contenidoTooltipCiudad(p) {
+            const colorSemaforo = p.riesgo ? p.riesgo.hex : '#10b981';
+            return `
+                <div class="px-2 py-1 font-sans text-xs">
+                    <strong class="text-slate-900">${p.city}</strong>: 
+                    <span class="font-mono font-bold text-red-600">${convertirTemp(p.temperatura)} ${getSimboloUnidad()}</span>
+                    <div class="text-[9px] font-bold" style="color:${colorSemaforo}">${p.riesgo ? p.riesgo.etiqueta : ''}</div>
+                </div>`;
+        }
+
+        function crearMarcadorCiudad(p) {
+            const colorSemaforo = p.riesgo ? p.riesgo.hex : '#10b981';
+            const customIcon = L.divIcon({
+                html: `<div style="background-color: ${colorSemaforo}; box-shadow: 0 0 10px ${colorSemaforo};" 
+                            class="w-3.5 h-3.5 rounded-full border-2 border-white cursor-pointer transform hover:scale-150 transition-all"></div>`,
+                className: 'city-beacon-icon',
+                iconSize: [14, 14],
+                iconAnchor: [7, 7]
+            });
+
+            const marker = L.marker([p.lat, p.lon], { icon: customIcon, riseOnHover: true });
+            marker.bindTooltip(contenidoTooltipCiudad(p), { direction: 'top', offset: [0, -7], opacity: 0.95 });
+
+            // Clic directo: selección inmediata (sin popup), detener propagación para no disparar el reset global
+            marker.on('click', (e) => {
+                L.DomEvent.stopPropagation(e);
+                seleccionarCiudad(p.city);
+            });
+            // Ocultar el tooltip de temperatura del cursor mientras se está sobre un nodo
+            marker.on('mouseover', () => { cursorTooltip.style.display = 'none'; });
+
+            marker.addTo(markersGroup);
+            markersByCity[p.city] = marker;
+        }
+
+        function renderMarkers(puntos) {
+            if (!puntos) return;
+            for (let i = 0; i < puntos.length; i++) {
+                const p = puntos[i];
+                const existente = markersByCity[p.city];
+                if (existente) {
+                    existente.setTooltipContent(contenidoTooltipCiudad(p));
+                } else {
+                    crearMarcadorCiudad(p);
+                }
+            }
+        }
+
+        // Clic en cualquier área libre del mapa para volver a Vista Global
+        map.on('click', () => {
+            if (ciudadSeleccionada) {
+                resetCiudad();
+            }
+        });
+
+        let thermalDataByYear = {}; // Diccionario en memoria indexado por año { "1850": [...], ... }
+
+        // ACTUALIZACIÓN POR AÑO: memoria local + coalescencia por frame (requestAnimationFrame)
+        // Arrastrar el slider genera decenas de eventos 'input' por segundo; solo se procesa el último por frame.
+        let pendingYear = null;
+        let rafHandle = null;
+
+        function aplicarAno(year) {
+            const puntosAno = thermalDataByYear[String(year)];
+            if (puntosAno && puntosAno.length > 0) {
+                currentYearPuntos = puntosAno;
+                renderHeatmap(puntosAno);        // 1. Raster IDW continuo (canvas)
+                renderMarkers(puntosAno);        // 2. Texto de marcadores (sin recrear DOM)
+                actualizarPuntoEnGrafico(year);  // 3. Nodo rojo en la gráfica
+            } else {
+                cargarDatosAno(year);            // Fallback de red si el timeline no está precargado
+            }
+        }
+
+        function updateHeatmapForYear(selectedYear) {
+            currentYear = parseInt(selectedYear);
+            actualizarIndicadorAno(); // Retroalimentación inmediata del año (barato)
+
+            pendingYear = currentYear;
+            if (rafHandle === null) {
+                rafHandle = requestAnimationFrame(() => {
+                    rafHandle = null;
+                    aplicarAno(pendingYear);
+                });
+            }
+        }
+
+        // CONTROL DE SLIDER
+        function onSliderChange(year) {
+            updateHeatmapForYear(year);
+        }
+
+        function stepYear(delta) {
+            let nuevo = currentYear + delta;
+            if (nuevo < 1850) nuevo = 1850;
+            if (nuevo > 2050) nuevo = 2050;
+            document.getElementById('year-slider').value = nuevo;
+            updateHeatmapForYear(nuevo);
+        }
+
+        function togglePlay() {
+            isPlaying = !isPlaying;
+            const btnPlay = document.getElementById('btn-play');
+            const playIcon = document.getElementById('play-icon');
+            const playText = document.getElementById('play-text');
+
+            if (isPlaying) {
+                playIcon.innerText = "❚❚";
+                playText.innerText = "Pausa";
+                btnPlay.className = "px-3 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-500 text-white font-bold text-xs flex items-center gap-1 transition-all shadow-lg shadow-amber-600/30";
+
+                playInterval = setInterval(() => {
+                    let next = currentYear + 1;
+                    if (next > 2050) next = 1850;
+                    document.getElementById('year-slider').value = next;
+                    updateHeatmapForYear(next);
+                }, 220); // Reproducción ágil y fluida
+            } else {
+                clearInterval(playInterval);
+                playIcon.innerText = "▶";
+                playText.innerText = "Play";
+                btnPlay.className = "px-3 py-1.5 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white font-bold text-xs flex items-center gap-1 transition-all shadow-lg shadow-cyan-600/30";
+            }
+        }
+
+        function irAHoy() {
+            const todayYear = new Date().getFullYear();
+            currentYear = Math.min(Math.max(todayYear, 1850), 2050);
+            document.getElementById('year-slider').value = currentYear;
+            updateHeatmapForYear(currentYear);
+        }
+
+        function actualizarIndicadorAno() {
+            const hoy = new Date().getFullYear();
+            document.getElementById('current-year-badge').innerText = currentYear;
+            document.getElementById('chart-marker-year').innerText = currentYear;
+
+            const badgePeriodo = document.getElementById('status-periodo');
+            if (currentYear === hoy) {
+                badgePeriodo.innerText = `HOY (${currentYear})`;
+                badgePeriodo.className = "text-[10px] font-bold uppercase px-2 py-0.5 rounded-md bg-cyan-950 text-cyan-300 border border-cyan-700 shadow-sm";
+            } else if (currentYear > hoy) {
+                badgePeriodo.innerText = "PROYECCIÓN PREDICTIVA";
+                badgePeriodo.className = "text-[10px] font-bold uppercase px-2 py-0.5 rounded-md bg-amber-950 text-amber-400 border border-amber-800";
+            } else {
+                badgePeriodo.innerText = "HISTÓRICO REAL";
+                badgePeriodo.className = "text-[10px] font-bold uppercase px-2 py-0.5 rounded-md bg-emerald-950 text-emerald-400 border border-emerald-800";
+            }
+        }
+
+        // CARGA DE DATOS PARA EL AÑO SELECCIONADO (FALLBACK DE RED)
+        async function cargarDatosAno(year) {
+            try {
+                const res = await fetch(`/api/heatmap-year?year=${year}`);
+                if (!res.ok) return;
+                const data = await res.json();
+                const puntos = normalizarPuntos(data.puntos);
+
+                renderHeatmap(puntos);
+                renderMarkers(puntos);
+                actualizarPuntoEnGrafico(year);
+            } catch (err) {
+                console.error("Error al cargar año:", err);
+            }
+        }
+
+        // SELECCIONAR CIUDAD (respuesta visual inmediata; los datos llegan en paralelo)
+        async function seleccionarCiudad(city) {
+            ciudadSeleccionada = city;
+            const btnReset = document.getElementById('btn-reset-city');
+            const citySelector = document.getElementById('city-selector');
+            citySelector.value = city;
+
+            if (city) {
+                btnReset.classList.remove('hidden');
+                document.getElementById('current-location-label').innerText = `Ubicación: ${city}`;
+
+                // Vuelo inmediato con las coordenadas ya conocidas del marcador (sin esperar a la API)
+                const marker = markersByCity[city];
+                if (marker) {
+                    map.flyTo(marker.getLatLng(), 5, { animate: true, duration: 1.2 });
+                }
+            } else {
+                btnReset.classList.add('hidden');
+                document.getElementById('current-location-label').innerText = "Ubicación: Global";
+            }
+
+            await cargarDetalleCiudad(city);
+        }
+
+        function resetCiudad() {
+            seleccionarCiudad('');
+            map.flyTo([20.0, 10.0], 2, { animate: true, duration: 1.5 });
+        }
+
+        // RENDERIZAR MEDIDAS PRESCRIPTIVAS
+        function renderMedidasPrescriptivas(medidas) {
+            const cont = document.getElementById('contenedor-medidas');
+            cont.innerHTML = '';
+
+            medidas.forEach(m => {
+                const card = document.createElement('div');
+                card.className = "p-2.5 rounded-xl bg-slate-900/90 border border-slate-700/70 hover:border-cyan-500/50 transition-all";
+                card.innerHTML = `
+                    <div class="flex items-center gap-2 mb-1">
+                        <span class="text-sm">${m.icono}</span>
+                        <div class="min-w-0 flex-1">
+                            <span class="text-[9px] uppercase font-bold text-cyan-400 block tracking-wider">${m.categoria}</span>
+                            <h4 class="text-xs font-bold text-slate-100 truncate">${m.titulo}</h4>
+                        </div>
+                    </div>
+                    <p class="text-[11px] text-slate-300 leading-relaxed">${m.descripcion}</p>
+                `;
+                cont.appendChild(card);
+            });
+        }
+
+        // CARGAR DETALLE DE CIUDAD Y MÉTRICAS DE ENERGÍA
+        async function cargarDetalleCiudad(city) {
+            const token = ++detalleRequestToken;
+            try {
+                const url = city ? `/api/city-detail?city=${encodeURIComponent(city)}` : `/api/city-detail?city=Global`;
+                const res = await fetch(url);
+                if (!res.ok) return;
+                const data = await res.json();
+                if (token !== detalleRequestToken) return; // Respuesta desfasada (el usuario ya eligió otra ciudad)
+                cityDetailData = data;
+
+                // 1. Actualizar Semáforo de Riesgo
+                const r = cityDetailData.riesgo;
+                const dot = document.getElementById('semaforo-dot');
+                const lbl = document.getElementById('semaforo-etiqueta');
+                dot.style.backgroundColor = r.hex;
+                dot.style.boxShadow = `0 0 12px ${r.hex}`;
+                lbl.innerText = `[${r.etiqueta}]`;
+                lbl.style.color = r.hex;
+                document.getElementById('semaforo-sub').innerText = r.descripcion;
+
+                // 2. Actualizar Métricas de Ingeniería
+                document.getElementById('kpi-delta-temp').innerText = `+${cityDetailData.delta_temp_2040}`;
+                document.getElementById('kpi-pct-cdd').innerText = `+${cityDetailData.pct_aumento_cdd}`;
+                document.getElementById('kpi-cdd-val').innerText = `CDD 2040: ${cityDetailData.cdd_proy_2040}`;
+                document.getElementById('kpi-estres-nivel').innerText = r.nivel === 'ALTO' ? 'Crítico (>85%)' : (r.nivel === 'MODERADO' ? 'Alerta (70%)' : 'Estable');
+                document.getElementById('kpi-calentamiento-decada').innerText = `+${cityDetailData.calentamiento_decada} ${getSimboloUnidad()}/déc`;
+
+                // 3. Renderizar Catálogo de Medidas
+                renderMedidasPrescriptivas(cityDetailData.medidas_prescriptivas || []);
+
+                // 4. Centrado suave (solo si no se hizo ya con el marcador en seleccionarCiudad)
+                if (city && !markersByCity[city] && cityDetailData.lat && cityDetailData.lon) {
+                    map.flyTo([cityDetailData.lat, cityDetailData.lon], 5, {
+                        animate: true,
+                        duration: 1.2
+                    });
+                }
+
+                actualizarGrafico();
+            } catch (err) {
+                console.error("Error al cargar detalle de ciudad:", err);
+            }
+        }
+
+        // EXPORTAR FICHA TÉCNICA EJECUTIVA
+        function exportarFichaTecnica() {
+            if (!cityDetailData) return;
+            const c = cityDetailData;
+            const reporte = `
+================================================================================
+CLIMATEAI: FICHA TÉCNICA EJECUTIVA DE RESILIENCIA ENERGÉTICA
+================================================================================
+Ubicación: ${c.city ? c.city + ', ' + c.country : 'Consolidado Urbano Global'}
+Coordenadas: Lat ${c.lat}, Lon ${c.lon}
+Fecha de Emisión: ${new Date().toLocaleString()}
+Horizonte de Evaluación: 2040 (10-15 años hacia adelante)
+
+--------------------------------------------------------------------------------
+1. CLASIFICACIÓN DE VULNERABILIDAD & SEMÁFORO DE RIESGO
+--------------------------------------------------------------------------------
+Nivel de Riesgo: ${c.riesgo.etiqueta}
+Diagnóstico de Red Eléctrica: ${c.riesgo.estres_red}
+Detalle: ${c.riesgo.descripcion}
+
+--------------------------------------------------------------------------------
+2. INDICADORES DE INGENIERÍA ENERGÉTICA (ASHRAE BASE 18°C)
+--------------------------------------------------------------------------------
+Temperatura Media Histórica Base: ${c.media_historica} °C
+Temperatura Actual Registrada: ${c.temp_actual} °C
+Temperatura Estimada para 2040: ${c.temp_proy_2040} °C
+Delta Térmico Proyectado: +${c.delta_temp_2040} °C
+Tasa de Calentamiento por Década: +${c.calentamiento_decada} °C/década
+Grados-Día de Enfriamiento (CDD Base): ${c.cdd_hist_base}
+Grados-Día de Enfriamiento (CDD 2040): ${c.cdd_proy_2040}
+Incremento Proyectado en Demanda de Climatización (HVAC): +${c.pct_aumento_cdd}%
+
+--------------------------------------------------------------------------------
+3. PLAN DE ACCIÓN PREVENTIVO Y MEDIDAS PRESCRIPTIVAS
+--------------------------------------------------------------------------------
+${c.medidas_prescriptivas.map(m => `* ${m.categoria}: ${m.titulo}\n  Recomendación: ${m.descripcion}\n`).join('\n')}
+================================================================================
+ClimateAI Decision-Making Engine.
+            `.trim();
+
+            const blob = new Blob([reporte], { type: 'text/plain;charset=utf-8' });
+            const link = document.createElement('a');
+            link.href = URL.createObjectURL(blob);
+            link.download = `Ficha_Tecnica_ClimateAI_${c.city || 'Global'}_2040.txt`;
+            link.click();
+        }
+
+        // TABS DERECHAS
+        function cambiarTabDerecha(tab) {
+            tabActualDerecha = tab;
+            const btnRec = document.getElementById('tab-btn-rec');
+            const btnChart = document.getElementById('tab-btn-chart');
+            const contRec = document.getElementById('tab-content-rec');
+            const contChart = document.getElementById('tab-content-chart');
+            const sublbl = document.getElementById('tab-sublabel');
+
+            if (tab === 'rec') {
+                btnRec.className = "px-2.5 py-1 text-xs font-bold rounded-lg bg-cyan-500/20 text-cyan-400 border border-cyan-500/40 transition-all flex items-center gap-1";
+                btnChart.className = "px-2.5 py-1 text-xs font-bold rounded-lg text-slate-400 hover:text-white transition-all flex items-center gap-1";
+                contRec.classList.remove('hidden');
+                contChart.classList.add('hidden');
+                sublbl.innerText = "Decisión Urbana";
+            } else {
+                btnChart.className = "px-2.5 py-1 text-xs font-bold rounded-lg bg-cyan-500/20 text-cyan-400 border border-cyan-500/40 transition-all flex items-center gap-1";
+                btnRec.className = "px-2.5 py-1 text-xs font-bold rounded-lg text-slate-400 hover:text-white transition-all flex items-center gap-1";
+                contChart.classList.remove('hidden');
+                contRec.classList.add('hidden');
+                sublbl.innerText = "Evolución CDD";
+                if (temperatureChart) temperatureChart.resize();
+            }
+        }
+
+        // INICIALIZACIÓN DE GRÁFICO DUAL (TEMPERATURA + CDD)
+        function initChart() {
+            const ctx = document.getElementById('temperatureChart').getContext('2d');
+            temperatureChart = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: [],
+                    datasets: [
+                        {
+                            type: 'bar',
+                            label: 'Cooling Degree Days (CDD)',
+                            data: [],
+                            backgroundColor: 'rgba(168, 85, 247, 0.25)',
+                            borderColor: 'rgba(168, 85, 247, 0.6)',
+                            borderWidth: 1,
+                            yAxisID: 'y1',
+                            order: 3
+                        },
+                        {
+                            type: 'line',
+                            label: 'Histórico Real',
+                            data: [],
+                            borderColor: '#06b6d4',
+                            backgroundColor: 'transparent',
+                            tension: 0.2,
+                            pointRadius: 0,
+                            borderWidth: 2,
+                            yAxisID: 'y',
+                            order: 1
+                        },
+                        {
+                            type: 'line',
+                            label: 'Proyección 2040',
+                            data: [],
+                            borderColor: '#f59e0b',
+                            borderDash: [5, 4],
+                            backgroundColor: 'transparent',
+                            tension: 0.1,
+                            pointRadius: 0,
+                            borderWidth: 2,
+                            yAxisID: 'y',
+                            order: 2
+                        },
+                        {
+                            type: 'line',
+                            label: 'Año Seleccionado',
+                            data: [],
+                            borderColor: '#ef4444',
+                            pointBackgroundColor: '#ef4444',
+                            pointBorderColor: '#ffffff',
+                            pointBorderWidth: 2,
+                            pointRadius: 6,
+                            showLine: false,
+                            yAxisID: 'y',
+                            order: 0
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: {
+                            callbacks: {
+                                label: (ctx) => {
+                                    if (ctx.dataset.type === 'bar') {
+                                        return `CDD: ${ctx.parsed.y} grados-día`;
+                                    }
+                                    return `Temp: ${ctx.parsed.y} ${getSimboloUnidad()}`;
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            ticks: { color: '#94a3b8', font: { size: 9 }, maxTicksLimit: 7 },
+                            grid: { color: 'rgba(255, 255, 255, 0.05)' }
+                        },
+                        y: {
+                            type: 'linear',
+                            position: 'left',
+                            ticks: { color: '#06b6d4', font: { size: 9 }, callback: (v) => `${v}${getSimboloUnidad()}` },
+                            grid: { color: 'rgba(255, 255, 255, 0.07)' }
+                        },
+                        y1: {
+                            type: 'linear',
+                            position: 'right',
+                            ticks: { color: '#c084fc', font: { size: 8 } },
+                            grid: { display: false }
+                        }
+                    }
+                }
+            });
+        }
+
+        function actualizarGrafico() {
+            if (!temperatureChart || !cityDetailData) return;
+
+            const historico = cityDetailData.historico || [];
+            const proyeccion = cityDetailData.proyeccion || [];
+
+            const labels = [
+                ...historico.map(h => h.year),
+                ...proyeccion.map(p => p.year)
+            ];
+
+            const histVals = historico.map(h => parseFloat(convertirTemp(h.temperatura)));
+            const histCDD = historico.map(h => h.cdd || 0);
+            const proyCDD = proyeccion.map(p => p.cdd_proy || 0);
+            const allCDD = [...histCDD, ...proyCDD];
+
+            const paddingNulls = new Array(proyeccion.length).fill(null);
+            const lastHist = histVals.length > 0 ? histVals[histVals.length - 1] : null;
+            const preNulls = new Array(Math.max(histVals.length - 1, 0)).fill(null);
+            const proyVals = proyeccion.map(p => parseFloat(convertirTemp(p.prediccion)));
+
+            temperatureChart.data.labels = labels;
+            // Dataset 0: Barras CDD
+            temperatureChart.data.datasets[0].data = allCDD;
+            // Dataset 1: Histórico
+            temperatureChart.data.datasets[1].data = [...histVals, ...paddingNulls];
+            // Dataset 2: Proyección
+            temperatureChart.data.datasets[2].data = [
+                ...preNulls,
+                ...(lastHist !== null ? [lastHist] : []),
+                ...proyVals
+            ];
+
+            actualizarPuntoEnGrafico(currentYear);
+        }
+
+        function actualizarPuntoEnGrafico(year) {
+            if (!temperatureChart || !temperatureChart.data.labels) return;
+            const labels = temperatureChart.data.labels;
+            const idx = labels.indexOf(year);
+
+            const pointData = new Array(labels.length).fill(null);
+            if (idx !== -1) {
+                const val = temperatureChart.data.datasets[1].data[idx] ?? temperatureChart.data.datasets[2].data[idx];
+                pointData[idx] = val;
+            }
+            temperatureChart.data.datasets[3].data = pointData;
+            temperatureChart.update('none');
+        }
+
+        // INICIALIZACIÓN DEL SPLITTER REDIMENSIONABLE (HASTA 50% DE PANTALLA)
+        function initResizableSplitter() {
+            const splitter = document.getElementById('drag-splitter');
+            const sidebar = document.getElementById('sidebar-container');
+            const mapContainer = document.getElementById('map-container');
+            if (!splitter || !sidebar || !mapContainer) return;
+
+            let isDragging = false;
+
+            splitter.addEventListener('mousedown', (e) => {
+                isDragging = true;
+                splitter.classList.add('dragging');
+                document.body.style.cursor = 'col-resize';
+                document.body.style.userSelect = 'none';
+                e.preventDefault();
+            });
+
+            window.addEventListener('mousemove', (e) => {
+                if (!isDragging) return;
+
+                const winWidth = window.innerWidth;
+                const mouseX = e.clientX;
+
+                // Calcular ancho deseado del sidebar (lado derecho)
+                let newSidebarWidth = winWidth - mouseX;
+
+                // Restricciones: mínimo 280px / 20%, máximo estricto 50% del ancho de la pantalla (50vw)
+                const minWidth = Math.max(300, winWidth * 0.22);
+                const maxWidth = winWidth * 0.50; // Máximo estricto del 50%
+
+                if (newSidebarWidth < minWidth) newSidebarWidth = minWidth;
+                if (newSidebarWidth > maxWidth) newSidebarWidth = maxWidth;
+
+                const sidebarPct = (newSidebarWidth / winWidth) * 100;
+                sidebar.style.width = `${sidebarPct}%`;
+
+                // El mapa se ajusta automáticamente gracias a flex-1 en map-container
+                map.invalidateSize();
+                if (temperatureChart) temperatureChart.resize();
+            });
+
+            window.addEventListener('mouseup', () => {
+                if (isDragging) {
+                    isDragging = false;
+                    splitter.classList.remove('dragging');
+                    document.body.style.cursor = '';
+                    document.body.style.userSelect = '';
+                    // Forzar ajuste final perfecto del mapa Leaflet
+                    setTimeout(() => {
+                        map.invalidateSize();
+                        if (temperatureChart) temperatureChart.resize();
+                    }, 50);
+                }
+            });
+        }
+
+        // CARGA INICIAL AUTOMATIZADA
+        // config + detalle Global + timeline en paralelo -> paneles Global -> mapa/marcadores del año actual
+        async function initApp() {
+            initResizableSplitter();
+            initChart();
+            actualizarIndicadorAno();
+
+            // Disparar las tres peticiones a la vez (sin cascada secuencial)
+            const configPromise = fetch('/api/config').then(r => r.json());
+            const detallePromise = cargarDetalleCiudad('');   // Pinta KPIs, plan de acción y gráfica Global
+            const timelinePromise = fetch('/api/thermal-timeline')
+                .then(r => (r.ok ? r.json() : { timeline: {} }))
+                .catch(e => { console.warn("Timeline no disponible, se usará el fallback por año:", e); return { timeline: {} }; });
+
+            // 1. Selector de ciudades
+            try {
+                configData = await configPromise;
+                const selector = document.getElementById('city-selector');
+                const frag = document.createDocumentFragment();
+                configData.ciudades.forEach(c => {
+                    const opt = document.createElement('option');
+                    opt.value = c.city;
+                    const semIcon = c.riesgo.nivel === 'ALTO' ? '🔴' : (c.riesgo.nivel === 'MODERADO' ? '🟡' : '🟢');
+                    opt.innerText = `${semIcon} ${c.city}, ${c.country}`;
+                    frag.appendChild(opt);
+                });
+                selector.appendChild(frag);
+            } catch (err) {
+                console.error("Error cargando configuración:", err);
+            }
+
+            // 2. Timeline térmico en memoria (normalizado una sola vez)
+            const dataTimeline = await timelinePromise;
+            thermalDataByYear = dataTimeline.timeline || {};
+            for (const y in thermalDataByYear) normalizarPuntos(thermalDataByYear[y]);
+
+            // 3. Mapa + marcadores del año actual (o fallback de red si el timeline falló)
+            irAHoy();
+
+            await detallePromise;
+        }
+
+        window.addEventListener('DOMContentLoaded', initApp);
+    </script>
+</body>
+</html>
