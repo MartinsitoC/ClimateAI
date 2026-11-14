@@ -1,0 +1,152 @@
+{
+  "generated_at": "2026-11-14T15:26:27",
+  "split_protocol": {
+    "train_ratio": 0.8,
+    "test_ratio": 0.2,
+    "total_samples": 190218,
+    "train_samples": 152174,
+    "test_samples": 38044,
+    "random_state": 42,
+    "rf_trees": 100
+  },
+  "kfold_validation": null,
+  "exported_plots": {
+    "curva_residuos": "C:\\Users\\marca\\Documents\\VScode\\Fundamentos de IA\\Proyecto IA\\data\\processed\\curva_residuos.png",
+    "matriz_confusion": "C:\\Users\\marca\\Documents\\VScode\\Fundamentos de IA\\Proyecto IA\\data\\processed\\matriz_confusion.png"
+  },
+  "task_a_regression": {
+    "target": "AverageTemperature",
+    "features": [
+      "lat",
+      "lon",
+      "year",
+      "month",
+      "co2_emissions"
+    ],
+    "baseline_ridge": {
+      "model": "Ridge(alpha=1.0)",
+      "test_metrics": {
+        "r2": 0.1607,
+        "rmse": 8.9502,
+        "mae": 7.0839,
+        "mape_pct": 101.05,
+        "max_error": 40.6747
+      }
+    },
+    "main_random_forest": {
+      "model": "RandomForestRegressor(n_estimators=100, max_depth=14, min_samples_split=5)",
+      "train_metrics": {
+        "r2": 0.9893,
+        "rmse": 1.0075,
+        "mae": 0.7321,
+        "mape_pct": 8.6,
+        "max_error": 9.4517
+      },
+      "test_metrics": {
+        "r2": 0.9853,
+        "rmse": 1.1844,
+        "mae": 0.8366,
+        "mape_pct": 10.57,
+        "max_error": 10.1177
+      },
+      "delta_r2": 0.004,
+      "feature_importances": {
+        "lat": 0.5123,
+        "lon": 0.1022,
+        "year": 0.0036,
+        "month": 0.3793,
+        "co2_emissions": 0.0025
+      }
+    }
+  },
+  "task_b_classification": {
+    "target": "Risk_Class (0=BAJO, 1=MODERADO, 2=CRITICO)",
+    "features": [
+      "AverageTemperature",
+      "Delta_T",
+      "CDD",
+      "lat"
+    ],
+    "baseline_logistic": {
+      "model": "LogisticRegression(max_iter=1000)",
+      "test_metrics": {
+        "accuracy": 0.9988,
+        "f1_macro": 0.9935,
+        "precision_critical": 0.9875,
+        "recall_critical": 0.9794,
+        "confusion_matrix": [
+          [
+            28177,
+            11,
+            0
+          ],
+          [
+            4,
+            8869,
+            12
+          ],
+          [
+            0,
+            20,
+            951
+          ]
+        ]
+      }
+    },
+    "main_gradient_boosting": {
+      "model": "GradientBoostingClassifier(n_estimators=60, learning_rate=0.05, max_depth=3, subsample=0.8)",
+      "train_metrics": {
+        "accuracy": 1.0,
+        "f1_macro": 1.0,
+        "precision_critical": 1.0,
+        "recall_critical": 1.0,
+        "confusion_matrix": [
+          [
+            112750,
+            0,
+            0
+          ],
+          [
+            0,
+            35540,
+            0
+          ],
+          [
+            0,
+            0,
+            3884
+          ]
+        ]
+      },
+      "test_metrics": {
+        "accuracy": 1.0,
+        "f1_macro": 1.0,
+        "precision_critical": 1.0,
+        "recall_critical": 1.0,
+        "confusion_matrix": [
+          [
+            28188,
+            0,
+            0
+          ],
+          [
+            0,
+            8885,
+            0
+          ],
+          [
+            0,
+            0,
+            971
+          ]
+        ]
+      },
+      "feature_importances": {
+        "AverageTemperature": 0.5096,
+        "Delta_T": 0.0,
+        "CDD": 0.4904,
+        "lat": 0.0
+      }
+    }
+  }
+}

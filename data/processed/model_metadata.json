@@ -1,0 +1,13 @@
+{
+  "trained_at": "2026-11-14T15:26:27",
+  "sklearn_version": "1.9.1",
+  "random_state": 42,
+  "train_ratio": 0.8,
+  "test_ratio": 0.2,
+  "rf_trees": 100,
+  "kfold": null,
+  "exported_plots": {
+    "curva_residuos": "C:\\Users\\marca\\Documents\\VScode\\Fundamentos de IA\\Proyecto IA\\data\\processed\\curva_residuos.png",
+    "matriz_confusion": "C:\\Users\\marca\\Documents\\VScode\\Fundamentos de IA\\Proyecto IA\\data\\processed\\matriz_confusion.png"
+  }
+}

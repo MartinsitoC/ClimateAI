@@ -1,5 +1,32 @@
-﻿*GlobalLandTemperaturesByCity.csv
+# Entornos virtuales y compilados de Python
 __pycache__/
+*.py[cod]
+*$py.class
 *.pyc
 .venv/
 venv/
+env/
+.env
+
+# Archivos de sistema operativo y editores
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Bases de datos temporales de caché y datasets masivos no requeridos
+data/geo_cache.db
+data/geo_cache.db-shm
+data/geo_cache.db-wal
+open_meteo_cache.json
+*GlobalLandTemperaturesByCity.csv
+
+# Permitir explícitamente artefactos auditables de la Entrega 3 en data/processed/
+!data/
+!data/processed/
+!data/processed/rf_temperature_model.joblib
+!data/processed/gb_grid_risk_model.joblib
+!data/processed/evaluation_matrix.json
+!data/processed/model_metadata.json
+!data/processed/matriz_confusion.png
+!data/processed/curva_residuos.png
