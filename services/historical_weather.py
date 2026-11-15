@@ -1,33 +1,71 @@
 """
 URBAN-HEAT GRID INTELLIGENCE — Servicio de Historial Climático Real (Open-Meteo ERA5 Archive)
 Archivo: services/historical_weather.py
-Extrae la serie histórica real observada (1940-2025) mediante ERA5 Reanalysis con persistencia SQLite.
+Extrae la serie histórica real observada (1940-2025) mediante ERA5 Reanalysis con persistencia SQLite
+no bloqueante ejecutada vía asyncio.to_thread.
 """
-from datetime import datetime
+import asyncio
+from datetime import datetime, timezone
 import json
 from pathlib import Path
 import sqlite3
-from typing import Any, Dict, List
+import threading
+from typing import Any, Dict, List, Optional
 
 import httpx
 import numpy as np
 
 CACHE_DB = Path(__file__).resolve().parent.parent / "data" / "geo_cache.db"
 ERA5_ARCHIVE_URL = "https://archive-api.open-meteo.com/v1/archive"
+_DB_LOCK = threading.Lock()
 
 
 def init_historical_cache() -> None:
     CACHE_DB.parent.mkdir(parents=True, exist_ok=True)
-    with sqlite3.connect(CACHE_DB) as conn:
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS historical_climate_cache (
-                coord_key TEXT PRIMARY KEY,
-                data_json TEXT,
-                timestamp DATETIME
+    with _DB_LOCK:
+        with sqlite3.connect(CACHE_DB, timeout=10.0) as conn:
+            conn.execute("PRAGMA journal_mode=WAL;")
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS historical_climate_cache (
+                    coord_key TEXT PRIMARY KEY,
+                    data_json TEXT,
+                    timestamp DATETIME
+                )
+                """
             )
-            """
-        )
+            conn.commit()
+
+
+def _read_historical_cache_sync(coord_key: str) -> Optional[List[Dict[str, Any]]]:
+    init_historical_cache()
+    with _DB_LOCK:
+        with sqlite3.connect(CACHE_DB, timeout=10.0) as conn:
+            row = conn.execute(
+                "SELECT data_json FROM historical_climate_cache WHERE coord_key = ?",
+                (coord_key,),
+            ).fetchone()
+            if row and row[0]:
+                try:
+                    cached_series = json.loads(row[0])
+                    if isinstance(cached_series, list) and len(cached_series) > 0:
+                        return cached_series
+                except Exception:
+                    pass
+    return None
+
+
+def _write_historical_cache_sync(coord_key: str, serie_historica: List[Dict[str, Any]]) -> None:
+    init_historical_cache()
+    now_iso = datetime.now(timezone.utc).isoformat()
+    payload_str = json.dumps(serie_historica)
+    with _DB_LOCK:
+        with sqlite3.connect(CACHE_DB, timeout=10.0) as conn:
+            conn.execute(
+                "INSERT OR REPLACE INTO historical_climate_cache VALUES (?, ?, ?)",
+                (coord_key, payload_str, now_iso),
+            )
+            conn.commit()
 
 
 def generar_fallback_historico_era5(lat: float, lon: float) -> List[Dict[str, Any]]:
@@ -43,22 +81,12 @@ def generar_fallback_historico_era5(lat: float, lon: float) -> List[Dict[str, An
 
 
 async def obtener_historial_real_global(lat: float, lon: float) -> List[Dict[str, Any]]:
-    init_historical_cache()
     coord_key = f"{round(float(lat), 2)}_{round(float(lon), 2)}"
 
-    # 1. Verificar si está en caché local SQLite
-    with sqlite3.connect(CACHE_DB) as conn:
-        row = conn.execute(
-            "SELECT data_json FROM historical_climate_cache WHERE coord_key = ?",
-            (coord_key,),
-        ).fetchone()
-        if row and row[0]:
-            try:
-                cached_series = json.loads(row[0])
-                if isinstance(cached_series, list) and len(cached_series) > 0:
-                    return cached_series
-            except Exception:
-                pass
+    # 1. Verificar si está en caché local SQLite sin bloquear el event loop
+    cached_series = await asyncio.to_thread(_read_historical_cache_sync, coord_key)
+    if cached_series is not None:
+        return cached_series
 
     # 2. Consultar API de Archivo ERA5 de Open-Meteo (1940 - 2025)
     params = {
@@ -93,11 +121,7 @@ async def obtener_historial_real_global(lat: float, lon: float) -> List[Dict[str
             if not serie_historica:
                 return generar_fallback_historico_era5(lat, lon)
 
-            with sqlite3.connect(CACHE_DB) as conn:
-                conn.execute(
-                    "INSERT OR REPLACE INTO historical_climate_cache VALUES (?, ?, ?)",
-                    (coord_key, json.dumps(serie_historica), datetime.utcnow().isoformat()),
-                )
+            await asyncio.to_thread(_write_historical_cache_sync, coord_key, serie_historica)
             return serie_historica
         except Exception:
             return generar_fallback_historico_era5(lat, lon)

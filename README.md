@@ -29,7 +29,7 @@ El sistema implementa una arquitectura desacoplada en dos modos de operación (*
 
 ```text
 Proyecto IA/
-├── main.py                           # Servidor FastAPI, endpoints REST y exportación de reportes
+├── main.py                           # Servidor FastAPI, endpoints REST y exportación de reportes PNG/JSON
 ├── requirements.txt                  # Dependencias de producción y auditoría científica
 ├── README.md                         # Documentación técnica y guía de ejecución
 ├── .gitignore                        # Reglas de control de versiones y preservación de artefactos
@@ -38,12 +38,13 @@ Proyecto IA/
 │   ├── train_all.py                  # Entrenamiento oficial 80/20 (Tarea A + Tarea B) y reporte Train vs Test
 │   ├── recalibrate.py                # CLI de recalibración, K-Fold CV y exportación de gráficas a 300 DPI
 │   ├── model.py                      # Motor singleton de inferencia en cascada y contrato `predecir()`
+│   ├── visual_auditor.py             # Generador de evidencias académicas y fichas ejecutivas PNG (300 DPI)
 │   ├── benchmark_inference.py        # Benchmark de latencia (1,000 inferencias), casos críticos y XAI
-│   └── health_check.py               # Diagnóstico integral automatizado de 6 etapas
+│   └── health_check.py               # Diagnóstico integral E2E de 6 etapas y emisor de certificado QA PNG
 ├── services/
-│   ├── geocoding.py                  # Geocodificación global Nominatim con caché SQLite WAL y filtro urbano
+│   ├── geocoding.py                  # Geocodificación global Nominatim con caché SQLite WAL y semáforo asíncrono
 │   ├── weather_api.py                # Telemetría climática en vivo (Open-Meteo) y bulbo húmedo de Stull
-│   └── historical_climate.py / historical_weather.py  # Series históricas ERA5 (1940–2026)
+│   └── historical_climate.py / historical_weather.py  # Series históricas ERA5 (1940–2026) no bloqueantes
 ├── data/
 │   ├── raw/                          # Insumos crudos (emisiones anuales de CO2 OWID)
 │   └── processed/                    # Artefactos auditables (.joblib, JSON y diagnósticos PNG)
@@ -53,10 +54,15 @@ Proyecto IA/
 │       ├── model_metadata.json
 │       ├── matriz_confusion.png
 │       └── curva_residuos.png
+├── evidencias_finales/               # Evidencias gráficas de alta resolución (300 DPI, estilo Dark-Slate)
+│   ├── 01_auditoria_train_test_confusion.png  # Comparativa Train vs Test, Matriz 3x3 y XAI
+│   ├── 02_ficha_Cancun_2045.png               # Ficha ejecutiva de diagnóstico puntual por CLI
+│   ├── 03_certificado_qa_e2e.png              # Certificado de salud E2E (6 subsistemas + P50/P95/P99)
+│   └── export_{ciudad}_{anio}.png             # Fichas exportadas desde la interfaz web (/api/export/report-image)
 ├── tests/
-│   └── test_models.py                # Suite de pruebas unitarias (integridad, métricas, bordes y SLA < 10 ms)
+│   └── test_models.py                # Suite unittest (artefactos ML, casos límite, SLA < 10 ms y endpoints FastAPI)
 └── static/
-    └── index.html                    # Interfaz geoespacial reactiva (Leaflet + Chart.js + Tailwind CSS)
+    └── index.html                    # Interfaz geoespacial reactiva (Leaflet + Chart.js + Tailwind CSS + Ctrl+K)
 ```
 
 ---
@@ -69,49 +75,40 @@ pip install -r requirements.txt
 
 ---
 
-## 4. Entrenamiento, Recalibración y Auditoría de Modelos
+## 4. Flujo Completo de Ejecución
 
-### Entrenamiento Completo (Partición Estricta 80% Train / 20% Test)
+### Paso 1 — Entrenamiento Completo (Partición Estricta 80% Train / 20% Test)
 Entrena los modelos base y principales de regresión y clasificación, imprime la tabla comparativa `VALIDACIÓN DE GENERALIZACIÓN (TRAIN VS. TEST)` y actualiza los artefactos en `data/processed/`:
 
 ```bash
 python pipeline/train_all.py
 ```
 
-### Recalibración Paramétrica y Exportación de Evidencias Gráficas (300 DPI)
+### Paso 2 — Recalibración Paramétrica y Exportación de Gráficas Base (300 DPI)
 Imprime la matriz de confusión en consola y genera `data/processed/matriz_confusion.png` y `data/processed/curva_residuos.png`:
 
 ```bash
 python pipeline/recalibrate.py --export-plots
 ```
 
-Opciones adicionales de recalibración por CLI:
+### Paso 3 — Generación de Evidencias Visuales Ejecutivas (`evidencias_finales/`)
+Genera los paneles de auditoría académica (`01_auditoria_train_test_confusion.png`) y fichas de diagnóstico puntual (`02_ficha_{lugar}_{year}.png`):
+
 ```bash
-python pipeline/recalibrate.py --split 0.20 --kfold 5 --trees 100 --export-plots
+python pipeline/visual_auditor.py --audit-ml
+python pipeline/visual_auditor.py --lugar "Cancun" --lat 21.16 --lon -86.85 --year 2045
 ```
 
----
-
-## 5. Pruebas Unitarias, Diagnóstico Integral y Benchmark
-
-### Diagnóstico Integral de Salud del Sistema (6 Etapas)
-Verifica directorios, artefactos `.joblib`, contrato de inferencia `predecir()`, caché SQLite, suite `unittest` e integridad del frontend:
+### Paso 4 — Pruebas E2E, Diagnóstico Integral y Certificado QA (`03_certificado_qa_e2e.png`)
+Verifica directorios, artefactos `.joblib`, contrato de inferencia `predecir()`, caché SQLite, suite `unittest` (modelos + endpoints FastAPI), integridad del frontend y benchmark de 100 iteraciones ($P_{50}, P_{95}, P_{99}$), emitiendo `evidencias_finales/03_certificado_qa_e2e.png`:
 
 ```bash
 python pipeline/health_check.py
-```
-
-### Suite de Pruebas Unitarias y Benchmark de Latencia / XAI
-```bash
 python -m unittest tests/test_models.py -v
-python pipeline/benchmark_inference.py
 ```
 
----
-
-## 6. Arranque del Servidor Web
-
-Inicia el backend FastAPI y la plataforma visual interactiva en `http://127.0.0.1:8080`:
+### Paso 5 — Arranque del Servidor Web en Producción / Desarrollo
+Inicia el backend FastAPI y la plataforma interactiva en `http://127.0.0.1:8080` (configurable con la variable de entorno `ALLOWED_ORIGINS`):
 
 ```bash
 uvicorn main:app --port 8080

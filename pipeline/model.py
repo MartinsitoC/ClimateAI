@@ -203,6 +203,7 @@ class UrbanHeatInferenceEngine:
             self.eval_matrix = json.loads(EVAL_MATRIX_PATH.read_text(encoding="utf-8"))
         else:
             self.eval_matrix = {}
+        self.metrics = self.eval_matrix
 
         rf_metrics = (
             self.eval_matrix.get("task_a_regression", {})
@@ -298,8 +299,24 @@ class UrbanHeatInferenceEngine:
             dtype=np.float64,
             count=len(self._rf_trees),
         )
-        t_pred = float(np.mean(tree_preds))
+        rf_raw = float(np.mean(tree_preds))
         sigma = max(float(np.std(tree_preds)), 0.08)
+
+        if d.get("baseline_temp") is not None:
+            X_ref = np.array([[lat, lon, 1975.0, float(month), 150.0]], dtype=np.float32)
+            rf_ref = float(
+                np.mean(
+                    np.fromiter(
+                        (t.predict(X_ref)[0, 0] for t in self._rf_trees),
+                        dtype=np.float64,
+                        count=len(self._rf_trees),
+                    )
+                )
+            )
+            secular_trend = max(0, year - 2013) * 0.028
+            t_pred = baseline + (rf_raw - rf_ref) + secular_trend
+        else:
+            t_pred = rf_raw + max(0, year - 2013) * 0.024
 
         # Fórmulas físicas derivadas
         delta_t = t_pred - baseline

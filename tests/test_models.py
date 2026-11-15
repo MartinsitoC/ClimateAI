@@ -10,6 +10,8 @@ ROOT_DIR = CURRENT_DIR.parent
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
+from fastapi.testclient import TestClient
+from main import app
 from pipeline.config import CONFIG
 from pipeline.model import PredictionInput, UrbanHeatInferenceEngine
 
@@ -82,6 +84,97 @@ class TestUrbanHeatModels(unittest.TestCase):
             10.0,
             f"La inferencia individual tardó {elapsed_ms:.3f} ms (límite estricto: 10.0 ms)",
         )
+
+
+class TestFastAPIEndpoints(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.client = TestClient(app)
+        # Warm-up del endpoint /api/predict para estabilizar el pipeline HTTP en memoria
+        cls.client.post("/api/predict", json={"city": "Mexico", "target_year": 2030, "month": 7})
+
+    def test_01_get_config_100_ciudades(self) -> None:
+        resp = self.client.get("/api/config")
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+        self.assertIn("ciudades", data)
+        self.assertEqual(len(data["ciudades"]), 100, "El catálogo debe contener exactamente 100 ciudades")
+
+    def test_02_post_predict_latencia_y_contrato(self) -> None:
+        payload = {"city": "Baghdad", "target_year": 2040, "month": 7, "co2": 220.0}
+        t0 = time.perf_counter()
+        resp = self.client.post("/api/predict", json=payload)
+        elapsed_ms = (time.perf_counter() - t0) * 1000.0
+
+        self.assertEqual(resp.status_code, 200)
+        self.assertLess(elapsed_ms, 15.0, f"POST /api/predict tardó {elapsed_ms:.2f} ms (SLA < 15 ms)")
+
+        body = resp.json()
+        campos_esperados = [
+            "city",
+            "country",
+            "lat",
+            "lon",
+            "target_year",
+            "prediccion_temperatura",
+            "sigma_temp",
+            "rango_min",
+            "rango_max",
+            "anomalia_proyectada",
+            "cdd_anual",
+            "porcentaje_aumento_cdd",
+            "semaforo_hex",
+            "alerta_operativa",
+            "nivel_estres_red",
+            "probabilidades_riesgo",
+            "plan_accion",
+            "confianza_r2",
+        ]
+        for campo in campos_esperados:
+            self.assertIn(campo, body, f"Falta el campo '{campo}' en la respuesta de /api/predict")
+            self.assertIsNotNone(body[campo], f"El campo '{campo}' es nulo en /api/predict")
+
+    def test_03_get_geo_search_cancun(self) -> None:
+        resp = self.client.get("/api/geo/search", params={"q": "Cancun"})
+        self.assertEqual(resp.status_code, 200)
+        resultados = resp.json()
+        self.assertIsInstance(resultados, list)
+        self.assertGreater(len(resultados), 0, "La búsqueda de 'Cancun' debe retornar al menos un resultado")
+        top = resultados[0]
+        self.assertIn("lat", top)
+        self.assertIn("lon", top)
+        lat = float(top["lat"])
+        lon = float(top["lon"])
+        self.assertTrue(-90.0 <= lat <= 90.0, f"Latitud fuera de rango: {lat}")
+        self.assertTrue(-180.0 <= lon <= 180.0, f"Longitud fuera de rango: {lon}")
+        self.assertAlmostEqual(lat, 21.16, delta=1.0)
+        self.assertAlmostEqual(lon, -86.85, delta=1.0)
+
+    def test_04_post_export_report_image_png(self) -> None:
+        payload = {
+            "city": "Cancun",
+            "country": "Mexico",
+            "lat": 21.16,
+            "lon": -86.85,
+            "target_year": 2045,
+            "mode": "live",
+            "predicted_temp": 28.04,
+            "sigma_temp": 0.49,
+            "rango_min": 27.07,
+            "rango_max": 29.01,
+            "anomaly": 1.04,
+            "cdd": 10.04,
+            "pct_cdd": 11.5,
+            "risk_level": "RIESGO MODERADO",
+            "grid_stress": "Alerta (70-85%)",
+            "probabilities": {"BAJO": 0.0, "MODERADO": 100.0, "CRÍTICO": 0.0},
+            "action_plan": ["Monitoreo preventivo de subestaciones y transformadores."],
+        }
+        resp = self.client.post("/api/export/report-image", json=payload)
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.headers.get("content-type"), "image/png")
+        self.assertTrue(resp.content.startswith(b"\x89PNG\r\n\x1a\n"), "El binario devuelto no tiene firma PNG válida")
+        self.assertGreater(len(resp.content), 10240)
 
 
 if __name__ == "__main__":

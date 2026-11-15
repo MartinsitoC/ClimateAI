@@ -1,13 +1,32 @@
 {
-  "trained_at": "2026-11-14T15:26:27",
+  "trained_at": "2026-11-15T14:47:18",
   "sklearn_version": "1.9.1",
   "random_state": 42,
-  "train_ratio": 0.8,
-  "test_ratio": 0.2,
-  "rf_trees": 100,
-  "kfold": null,
-  "exported_plots": {
-    "curva_residuos": "C:\\Users\\marca\\Documents\\VScode\\Fundamentos de IA\\Proyecto IA\\data\\processed\\curva_residuos.png",
-    "matriz_confusion": "C:\\Users\\marca\\Documents\\VScode\\Fundamentos de IA\\Proyecto IA\\data\\processed\\matriz_confusion.png"
+  "total_samples": 190218,
+  "train_samples": 152174,
+  "test_samples": 38044,
+  "regression_features": [
+    "lat",
+    "lon",
+    "year",
+    "month",
+    "co2_emissions"
+  ],
+  "classification_features": [
+    "AverageTemperature",
+    "Delta_T",
+    "CDD",
+    "lat"
+  ],
+  "thresholds": {
+    "cdd_base_temp": 18.0,
+    "risk_moderate_temp": 26.0,
+    "risk_critical_temp": 32.0,
+    "risk_critical_cdd": 14.0
+  },
+  "artifacts": {
+    "regression_model": "rf_temperature_model.joblib",
+    "classification_model": "gb_grid_risk_model.joblib",
+    "evaluation_matrix": "evaluation_matrix.json"
   }
 }

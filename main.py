@@ -703,7 +703,8 @@ def inicializar_dataset_en_memoria():
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Manejador de ciclo de vida FastAPI: carga única y pre-computación total en GLOBAL_CACHE (RAM)."""
-    inicializar_dataset_en_memoria()
+    if not METADATA_CIUDADES:
+        inicializar_dataset_en_memoria()
     yield
     GLOBAL_CACHE.clear()
     METADATA_CIUDADES.clear()
@@ -714,9 +715,11 @@ app = FastAPI(
     lifespan=lifespan
 )
 
+ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "http://127.0.0.1:8080,http://localhost:8080").split(",")
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -814,6 +817,8 @@ async def serve_index():
 @app.get("/api/config")
 async def get_config():
     """Lookup O(1) en GLOBAL_CACHE para configuración inicial y catálogo de ciudades (< 1 ms)."""
+    if not METADATA_CIUDADES:
+        inicializar_dataset_en_memoria()
     return Response(content=GLOBAL_CACHE["bytes"]["config"], media_type="application/json")
 
 
@@ -1164,7 +1169,7 @@ async def get_live_weather():
     Endpoint del Agente Meteorológico para ciudades registradas (/api/agent/live-cities y /api/live-weather).
     Retorna temperatura actual (Open-Meteo + caché 60 min), categoría tier (1 | 2), coordenadas, CDD y color hex.
     """
-    return obtener_clima_en_vivo()
+    return await asyncio.to_thread(obtener_clima_en_vivo)
 
 
 @app.get("/api/agent/point-query", response_model=AgentPointQueryResponse, tags=["Weather Agent"])
@@ -1176,7 +1181,7 @@ async def agent_point_query(
     Consulta el clima en vivo de cualquier coordenada del planeta mediante el Agente Meteorológico
     (Open-Meteo Forecast API + caché en memoria AGENT_CACHE con TTL de 60 minutos).
     """
-    return consultar_punto_global_agente(lat, lon)
+    return await asyncio.to_thread(consultar_punto_global_agente, lat, lon)
 
 
 # ==============================================================================
@@ -1526,54 +1531,53 @@ class UniversalClimateTelemetryAgent:
 
     async def geocodificar_ciudad_universal(self, query: str) -> List[Dict[str, Any]]:
         """
-        Permite buscar cualquier ciudad del planeta por nombre usando el catálogo en RAM
-        combinado con Open-Meteo Geocoding API (con caché de 60 minutos).
+        Delega la búsqueda de localidades directamente a geocoding_service.search(q)
+        manteniendo compatibilidad con el formato de respuesta esperado por el frontend.
         """
         q = (query or "").strip()
         if not q:
             return []
 
-        cache_key = f"geocode:{q.lower()}"
-        cached = self._get_cached(cache_key)
-        if cached is not None:
-            return cached
-
+        geo_items = await geocoding_service.search(q)
         resultados: List[Dict[str, Any]] = []
-        q_lower = q.lower()
-        for c_name, meta in METADATA_CIUDADES.items():
-            if q_lower in c_name.lower() or q_lower in meta["country"].lower():
-                resultados.append({
-                    "city": c_name,
-                    "country": meta["country"],
+        for item in geo_items:
+            name = str(item.get("name") or "")
+            country = str(item.get("country") or "")
+            display_name = str(item.get("display_name") or (f"{name}, {country}" if country else name))
+            resultados.append(
+                {
+                    "city": name,
+                    "name": name,
+                    "display_name": display_name,
+                    "country": country,
                     "admin1": "",
-                    "lat": meta["lat"],
-                    "lon": meta["lon"],
-                    "source": "CATALOG"
-                })
+                    "lat": round(float(item.get("lat", 0.0)), 4),
+                    "lon": round(float(item.get("lon", 0.0)), 4),
+                    "type": str(item.get("type") or "city"),
+                    "source": "NOMINATIM_SQLITE",
+                }
+            )
 
-        try:
-            encoded_q = urllib.parse.quote(q)
-            geo_url = f"https://geocoding-api.open-meteo.com/v1/search?name={encoded_q}&count=6&language=es&format=json"
-            payload = await asyncio.to_thread(self._fetch_open_meteo_sync, geo_url, 3.5)
-            if isinstance(payload, dict) and isinstance(payload.get("results"), list):
-                for item in payload["results"]:
-                    name = item.get("name")
-                    lat_v = item.get("latitude")
-                    lon_v = item.get("longitude")
-                    if name is None or lat_v is None or lon_v is None:
-                        continue
-                    resultados.append({
-                        "city": name,
-                        "country": item.get("country", ""),
-                        "admin1": item.get("admin1", ""),
-                        "lat": round(float(lat_v), 4),
-                        "lon": round(float(lon_v), 4),
-                        "source": "OPEN_METEO_GEOCODING"
-                    })
-        except Exception:
-            pass
+        if not resultados:
+            q_lower = q.lower()
+            for c_name, meta in METADATA_CIUDADES.items():
+                if q_lower in c_name.lower() or q_lower in meta["country"].lower():
+                    resultados.append(
+                        {
+                            "city": c_name,
+                            "name": c_name,
+                            "display_name": f"{c_name}, {meta['country']}",
+                            "country": meta["country"],
+                            "admin1": "",
+                            "lat": round(float(meta["lat"]), 4),
+                            "lon": round(float(meta["lon"]), 4),
+                            "type": "city",
+                            "source": "CATALOG",
+                        }
+                    )
+                    if len(resultados) >= 8:
+                        break
 
-        self._set_cached(cache_key, resultados[:8])
         return resultados[:8]
 
 
@@ -1598,7 +1602,7 @@ async def get_universal_agent_telemetry(
 async def geocode_universal_city(
     q: str = Query(..., description="Nombre de cualquier ciudad del mundo")
 ):
-    """Geocodifica cualquier ciudad del mundo para selección universal."""
+    """Geocodifica cualquier ciudad del mundo delegando en geocoding_service.search(q)."""
     return await telemetry_agent.geocodificar_ciudad_universal(q)
 
 
@@ -1825,6 +1829,28 @@ async def export_technical_report(payload: ExportReportRequest):
         media_type="application/json; charset=utf-8",
         headers={
             "Content-Disposition": f'attachment; filename="{filename}"',
+            "Cache-Control": "no-store",
+        },
+    )
+
+
+@app.post("/api/export/report-image", tags=["Export"])
+async def export_technical_report_image(payload: ExportReportRequest):
+    """
+    Renderiza la ficha ejecutiva de resiliencia climática y de red en formato PNG (300 DPI)
+    utilizando el motor gráfico de pipeline/visual_auditor.py, guarda una copia en
+    evidencias_finales/export_{ciudad}_{anio}.png y la retorna como descarga adjunta.
+    """
+    from pipeline.visual_auditor import renderizar_ficha_reporte_png
+
+    buf, _out_path, ciudad, anio = await asyncio.to_thread(
+        renderizar_ficha_reporte_png, payload.model_dump()
+    )
+    return Response(
+        content=buf.getvalue(),
+        media_type="image/png",
+        headers={
+            "Content-Disposition": f'attachment; filename="Ficha_Resiliencia_{ciudad}_{anio}.png"',
             "Cache-Control": "no-store",
         },
     )

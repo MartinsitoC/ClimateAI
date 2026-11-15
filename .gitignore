@@ -21,7 +21,7 @@ data/geo_cache.db-wal
 open_meteo_cache.json
 *GlobalLandTemperaturesByCity.csv
 
-# Permitir explícitamente artefactos auditables de la Entrega 3 en data/processed/
+# Permitir explícitamente artefactos auditables de la Entrega 3 en data/processed/ y evidencias_finales/
 !data/
 !data/processed/
 !data/processed/rf_temperature_model.joblib
@@ -30,3 +30,5 @@ open_meteo_cache.json
 !data/processed/model_metadata.json
 !data/processed/matriz_confusion.png
 !data/processed/curva_residuos.png
+!evidencias_finales/
+!evidencias_finales/*.png

@@ -428,9 +428,14 @@
                 <!-- Header con Insignia de Modo Activo, Selector de Catálogo y Buscador Nominatim -->
                 <div class="flex flex-col gap-1.5 pb-2 border-b border-amber-200/50 dark:border-slate-800 relative">
                     <div class="flex items-center justify-between gap-1.5">
-                        <span id="sourceModeBadge" class="text-[9px] font-mono font-bold px-2 py-0.5 rounded border bg-cyan-500/15 text-cyan-600 dark:text-cyan-400 border-cyan-500/30 tracking-wider">
-                            [CATÁLOGO BASE: 1850-2013]
-                        </span>
+                        <div class="flex items-center gap-1.5 min-w-0">
+                            <span id="sourceModeBadge" class="text-[9px] font-mono font-bold px-2 py-0.5 rounded border bg-cyan-500/15 text-cyan-600 dark:text-cyan-400 border-cyan-500/30 tracking-wider truncate">
+                                [CATÁLOGO BASE: 1850-2013]
+                            </span>
+                            <span id="era5LoadingIndicator" class="hidden text-[9px] font-mono font-semibold px-2 py-0.5 rounded border bg-amber-500/15 text-amber-400 border-amber-500/40 animate-pulse shrink-0">
+                                ⏳ Cargando serie ERA5...
+                            </span>
+                        </div>
                         <button id="btn-reset-city" onclick="resetCiudad()" class="hidden text-[10px] bg-amber-500/15 hover:bg-amber-500/25 text-orange-600 dark:text-amber-400 border border-amber-500/30 px-2 py-0.5 rounded-lg transition-all shrink-0 font-semibold">
                             ↺ Global
                         </button>
@@ -459,7 +464,7 @@
                             <input id="citySearch"
                                    type="text"
                                    autocomplete="off"
-                                   placeholder="Buscar ciudad, municipio o pueblo (ej. Tulum, Oaxaca)..."
+                                   placeholder="Buscar ciudad o pueblo (Ctrl+K, ej. Tulum, Oaxaca)..."
                                    onkeydown="if(event.key==='Enter') ejecutarBusquedaDirectaNominatim()"
                                    class="flex-1 bg-slate-50 dark:bg-slate-900/90 text-slate-800 dark:text-slate-100 rounded-lg px-2.5 py-1.5 text-xs border border-amber-400/60 dark:border-amber-500/40 outline-none focus:border-amber-400">
                             <button onclick="ejecutarBusquedaDirectaNominatim()" class="px-2.5 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-bold transition-all shrink-0">
@@ -2017,6 +2022,41 @@
             }
         }
 
+        function mostrarToast(mensaje, tipo = 'info') {
+            let container = document.getElementById('toastContainer');
+            if (!container) {
+                container = document.createElement('div');
+                container.id = 'toastContainer';
+                container.className = 'fixed bottom-16 left-1/2 -translate-x-1/2 z-[2500] flex flex-col items-center gap-2 pointer-events-none';
+                document.body.appendChild(container);
+            }
+
+            const palette = {
+                success: 'bg-slate-900/95 border-emerald-500/70 text-emerald-300 shadow-emerald-950/50',
+                amber: 'bg-slate-900/95 border-amber-500/80 text-amber-300 shadow-amber-950/50',
+                cyan: 'bg-slate-900/95 border-cyan-500/80 text-cyan-300 shadow-cyan-950/50',
+                error: 'bg-slate-900/95 border-red-500/80 text-red-300 shadow-red-950/50',
+                info: 'bg-slate-900/95 border-slate-600/80 text-slate-200 shadow-slate-950/50'
+            };
+            const colorClasses = palette[tipo] || palette.info;
+
+            const toast = document.createElement('div');
+            toast.className = `px-3.5 py-2 rounded-xl border text-xs font-semibold font-sans shadow-xl backdrop-blur-md transition-all duration-300 opacity-0 translate-y-2 flex items-center gap-2 ${colorClasses}`;
+            toast.textContent = mensaje;
+            container.appendChild(toast);
+
+            requestAnimationFrame(() => {
+                toast.classList.remove('opacity-0', 'translate-y-2');
+                toast.classList.add('opacity-100', 'translate-y-0');
+            });
+
+            setTimeout(() => {
+                toast.classList.remove('opacity-100', 'translate-y-0');
+                toast.classList.add('opacity-0', 'translate-y-2');
+                setTimeout(() => toast.remove(), 300);
+            }, 3200);
+        }
+
         async function setSystemMode(mode) {
             systemMode = mode === 'live' ? 'live' : 'demo';
 
@@ -2039,6 +2079,7 @@
                 if (lastLiveWeatherData) renderizarTarjetaClimaVivo(lastLiveWeatherData);
                 const searchInput = document.getElementById('citySearch');
                 if (searchInput) setTimeout(() => searchInput.focus(), 50);
+                mostrarToast('🌐 Modo Live Global activado (Open-Meteo + Nominatim + ML)', 'amber');
             } else {
                 if (btnDemo) {
                     btnDemo.className = 'py-1.5 px-2 rounded text-left font-bold bg-cyan-500 text-slate-950 transition-all text-[11px] flex items-center justify-between';
@@ -2050,6 +2091,7 @@
                 if (resultsBox) resultsBox.classList.add('hidden');
                 if (demoContainer) demoContainer.classList.remove('hidden');
                 actualizarInsigniaFuente(true);
+                mostrarToast('🏛️ Modo Demo Académico activado (Catálogo Berkeley Earth + OWID)', 'cyan');
             }
 
             try {
@@ -2103,9 +2145,20 @@
             const numLon = parseFloat(lon);
             const label = placeName || selectedCity || `Coord (${numLat.toFixed(2)}°, ${numLon.toFixed(2)}°)`;
 
-            const res = await fetch(`/api/global/thermal-curve?lat=${numLat}&lon=${numLon}`);
-            if (!res.ok) throw new Error(`HTTP ${res.status}`);
-            const curve = await res.json();
+            const loadingEl = document.getElementById('era5LoadingIndicator');
+            if (loadingEl) {
+                loadingEl.textContent = '⏳ Cargando serie ERA5...';
+                loadingEl.classList.remove('hidden');
+            }
+
+            let curve;
+            try {
+                const res = await fetch(`/api/global/thermal-curve?lat=${numLat}&lon=${numLon}`);
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                curve = await res.json();
+            } finally {
+                if (loadingEl) loadingEl.classList.add('hidden');
+            }
 
             const histSeries = (curve.historial || []).map(h => ({
                 year: h.year,
@@ -2406,10 +2459,12 @@
                 btn.classList.add('bg-amber-500', 'text-slate-950', 'border-amber-400', 'ring-2', 'ring-amber-400/50');
                 btn.classList.remove('bg-slate-900/90', 'text-slate-300');
                 mapContainer.style.cursor = 'crosshair';
+                mostrarToast('🎯 Modo Inspección Puntual activado — haz clic en cualquier punto del globo', 'amber');
             } else {
                 btn.classList.remove('bg-amber-500', 'text-slate-950', 'border-amber-400', 'ring-2', 'ring-amber-400/50');
                 btn.classList.add('bg-slate-900/90', 'text-slate-300');
                 mapContainer.style.cursor = '';
+                mostrarToast('🎯 Modo Inspección Puntual desactivado', 'info');
             }
         }
 
@@ -3321,7 +3376,7 @@
         }
 
         // ==========================================
-        // 4. OPERATIVIDAD DEL BOTÓN [EXPORTAR FICHA] (POST /api/export/report)
+        // 4. OPERATIVIDAD DEL BOTÓN [EXPORTAR FICHA] (POST /api/export/report-image)
         // ==========================================
         async function exportarFichaTecnica() {
             const pred = lastPredictionData || {};
@@ -3361,8 +3416,10 @@
                 action_plan: actionCards.length > 0 ? actionCards : (pred.plan_accion || detail.medidas_prescriptivas || [])
             };
 
+            mostrarToast(`🖼️ Renderizando ficha ejecutiva PNG (300 DPI) para ${cityVal}...`, 'cyan');
+
             try {
-                const res = await fetch('/api/export/report', {
+                const res = await fetch('/api/export/report-image', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(payload)
@@ -3370,7 +3427,7 @@
                 if (!res.ok) throw new Error(`HTTP ${res.status}`);
                 const blob = await res.blob();
                 const safeCity = cityVal.replace(/[^a-zA-Z0-9_-]/g, '_') || 'Global';
-                const filename = `Ficha_Resiliencia_${safeCity}_${yearVal}.json`;
+                const filename = `Ficha_Resiliencia_${safeCity}_${yearVal}.png`;
                 const url = URL.createObjectURL(blob);
                 const a = document.createElement('a');
                 a.href = url;
@@ -3379,8 +3436,10 @@
                 a.click();
                 a.remove();
                 setTimeout(() => URL.revokeObjectURL(url), 1000);
+                mostrarToast(`✅ Ficha ejecutiva exportada: ${filename}`, 'success');
             } catch (err) {
                 console.error('Error al exportar ficha técnica:', err);
+                mostrarToast('❌ Error al generar la ficha ejecutiva PNG', 'error');
             }
         }
 
@@ -3755,6 +3814,20 @@
         });
 
         window.addEventListener('keydown', (e) => {
+            if ((e.ctrlKey || e.metaKey) && (e.key === 'k' || e.key === 'K')) {
+                e.preventDefault();
+                if (systemMode !== 'live') {
+                    setSystemMode('live');
+                }
+                const searchInput = document.getElementById('citySearch');
+                if (searchInput) {
+                    setTimeout(() => {
+                        searchInput.focus();
+                        searchInput.select();
+                    }, 30);
+                }
+                return;
+            }
             if (e.key === 'Escape' || e.key === 'Esc') {
                 if (document.fullscreenElement || document.webkitFullscreenElement) {
                     document.exitFullscreen().catch(() => {});
