@@ -4,34 +4,76 @@ Plataforma geoespacial y motor de inferencia de Machine Learning en cascada para
 
 ---
 
-## 1. Arquitectura del Sistema
+## 1. Guía Rápida de Despliegue y Ejecución (Entrega 4 — Liberación del Sistema Funcional)
 
-El sistema implementa una arquitectura desacoplada en dos modos de operación (**Modo Demo Académico** sobre 100 metrópolis globales de Berkeley Earth + OWID $\text{CO}_2$, y **Modo Live Global** con geocodificación OpenStreetMap Nominatim + reanálisis histórico ERA5 1940–2026 vía Open-Meteo):
+### Versiones Exactas del Stack Tecnológico
+| Capa | Tecnología / Librería | Versión Requerida |
+| :--- | :--- | :--- |
+| **Lenguaje Base** | Python | `3.13` |
+| **Backend API** | FastAPI / Uvicorn | `FastAPI >= 0.110`, `Uvicorn >= 0.28` |
+| **Machine Learning** | scikit-learn / Joblib | `scikit-learn 1.9.1`, `joblib >= 1.3` |
+| **Procesamiento Científico** | Pandas / NumPy | `Pandas >= 2.2`, `NumPy >= 1.26` |
+| **Persistencia Geoespacial** | SQLite3 | `SQLite3 (Modo WAL concurrente)` |
+| **Visualización Frontend** | Leaflet.js / Chart.js / Tailwind CSS | `Leaflet.js 1.9.4`, `Chart.js 4.x` |
+
+### Instalación y Configuración de Entorno
+1. Instalar las dependencias exactas del proyecto:
+   ```bash
+   pip install -r requirements.txt
+   ```
+2. *(Opcional)* Copiar el archivo de variables de entorno por defecto:
+   ```bash
+   cp .env.example .env
+   ```
+   > **Nota sobre APIs externas:** Los servicios integrados (*Open-Meteo Forecast API*, *Open-Meteo ERA5 Historical Archive* y *OpenStreetMap Nominatim*) son públicos y abiertos, por lo que **NO requieren API keys**.
+
+### Comandos de Verificación y Arranque Inmediato
+1. **Auditoría rápida de integridad E2E (6 subsistemas + certificado QA PNG):**
+   ```bash
+   python pipeline/health_check.py
+   ```
+2. **Arranque directo del servidor:**
+   ```bash
+   python main.py
+   ```
+   *(También compatible mediante CLI estándar: `uvicorn main:app --port 8080`)*
+3. **URL de Acceso Local:**
+   Abrir en el navegador: `http://127.0.0.1:8080`
+
+### Acceso, Credenciales y Modos de Operación
+- **Acceso abierto sin login:** El sistema está configurado con **acceso directo sin pantalla de autenticación ni credenciales**, permitiendo la evaluación funcional inmediata al abrir `http://127.0.0.1:8080`.
+- **Modos de operación integrados (conmutables desde el icono de engranaje `⚙️` o con `Ctrl+K`):**
+  1. **Modo Demo Académico (`demo`):** Opera en memoria RAM (`< 1 ms`) sobre el catálogo curado de **100 metrópolis globales (1850–2050)** combinando *Berkeley Earth Surface Temperature* y *OWID $\text{CO}_2$*.
+  2. **Modo Live Global (`live`):** Permite buscar cualquier ciudad, municipio o pueblo del mundo (*Nominatim*) o hacer clic en **cualquier coordenada del planeta** (*Modo Inspección Puntual* `🎯`), combinando telemetría en vivo, series históricas *ERA5 (1940–2025)* e inferencia ML en cascada (*2026–2050*).
+
+---
+
+## 2. Arquitectura del Motor de Machine Learning en Cascada
 
 1. **Tarea A — Regresión Térmica Espacial-Antropogénica (`RandomForestRegressor`):**
    - **Entrada:** `[lat, lon, year, month, co2_emissions]`.
    - **Salida:** Temperatura media proyectada ($\hat{T}$) e incertidumbre epistémica inter-árbol ($\pm\sigma$, intervalo de confianza al 95%: $\hat{T} \pm 1.96\sigma$).
-   - **Baseline de Comparación:** `Ridge(alpha=1.0)` con escalamiento estándar (`StandardScaler`).
-2. **Derivadas Termodinámicas intermedias:**
+   - **Desempeño validado (80/20 Hold-out):** $R^2_{\text{Test}} = 0.9853$, $\text{RMSE}_{\text{Test}} = 1.1844^\circ\text{C}$, $\Delta R^2 = +0.0040$ (sin *overfitting*) frente al baseline `Ridge` ($R^2 = 0.3005$).
+2. **Derivadas Termodinámicas Intermedias:**
    - Anomalía térmica respecto a la climatología base: $\Delta T = \hat{T} - T_{\text{baseline}}$.
    - Grados-Día de Refrigeración: $\text{CDD} = \max(0, \hat{T} - 18.0^\circ\text{C})$.
    - Temperatura de Bulbo Húmedo ($T_{wb}$) mediante la formulación empírica de Stull (2011) para carga latente en vivo.
 3. **Tarea B — Clasificación Probabilística de Estrés de Red (`GradientBoostingClassifier`):**
    - **Entrada en cascada:** `[AverageTemperature, Delta_T, CDD, lat]`.
-   - **Salida:** Probabilidades por clase (`predict_proba`) en 3 estados operativos: `0 = BAJO RIESGO`, `1 = RIESGO MODERADO`, `2 = ALTO RIESGO CRÍTICO`.
-   - **Baseline de Comparación:** `LogisticRegression(max_iter=1000)`.
+   - **Salida:** Probabilidades por clase (`predict_proba`) en 3 estados operativos: `0 = BAJO RIESGO`, `1 = RIESGO MODERADO`, `2 = ALTO RIESGO CRÍTICO` ($F1\text{-Macro}_{\text{Test}} = 1.0000$).
 4. **Motor de Inferencia en Tiempo Real (`pipeline/model.py`):**
-   - Evaluación vectorizada sobre estructuras Cython (`tree_`) con precalentamiento en memoria (*warm-up*) y latencia estabilizada $< 1\text{ ms}$ por consulta.
+   - Evaluación vectorizada sobre estructuras Cython (`tree_`) con precalentamiento en memoria (*warm-up*) y latencia estabilizada $P_{50} \approx 2.1\text{ ms}$ ($P_{95} < 3.5\text{ ms}$).
 
 ---
 
-## 2. Estructura de Carpetas
+## 3. Estructura de Carpetas
 
 ```text
 Proyecto IA/
-├── main.py                           # Servidor FastAPI, endpoints REST y exportación de reportes PNG/JSON
+├── main.py                           # Servidor FastAPI, endpoints REST, exportación PNG/JSON y arranque directo
+├── .env.example                      # Plantilla de variables de entorno (sin necesidad de API keys externas)
 ├── requirements.txt                  # Dependencias de producción y auditoría científica
-├── README.md                         # Documentación técnica y guía de ejecución
+├── README.md                         # Documentación técnica y guía rápida de despliegue
 ├── .gitignore                        # Reglas de control de versiones y preservación de artefactos
 ├── pipeline/
 │   ├── config.py                     # Configuración centralizada de rutas, features y umbrales ASHRAE
@@ -67,49 +109,26 @@ Proyecto IA/
 
 ---
 
-## 3. Instalación
+## 4. Comandos de Entrenamiento, Recalibración y Auditoría Científica
 
-```bash
-pip install -r requirements.txt
-```
-
----
-
-## 4. Flujo Completo de Ejecución
-
-### Paso 1 — Entrenamiento Completo (Partición Estricta 80% Train / 20% Test)
-Entrena los modelos base y principales de regresión y clasificación, imprime la tabla comparativa `VALIDACIÓN DE GENERALIZACIÓN (TRAIN VS. TEST)` y actualiza los artefactos en `data/processed/`:
-
+### Entrenamiento Completo (Partición Estricta 80% Train / 20% Test)
 ```bash
 python pipeline/train_all.py
 ```
 
-### Paso 2 — Recalibración Paramétrica y Exportación de Gráficas Base (300 DPI)
-Imprime la matriz de confusión en consola y genera `data/processed/matriz_confusion.png` y `data/processed/curva_residuos.png`:
-
+### Recalibración Paramétrica y Exportación de Gráficas Base (300 DPI)
 ```bash
 python pipeline/recalibrate.py --export-plots
 ```
 
-### Paso 3 — Generación de Evidencias Visuales Ejecutivas (`evidencias_finales/`)
-Genera los paneles de auditoría académica (`01_auditoria_train_test_confusion.png`) y fichas de diagnóstico puntual (`02_ficha_{lugar}_{year}.png`):
-
+### Generación de Evidencias Visuales Ejecutivas (`evidencias_finales/`)
 ```bash
 python pipeline/visual_auditor.py --audit-ml
 python pipeline/visual_auditor.py --lugar "Cancun" --lat 21.16 --lon -86.85 --year 2045
 ```
 
-### Paso 4 — Pruebas E2E, Diagnóstico Integral y Certificado QA (`03_certificado_qa_e2e.png`)
-Verifica directorios, artefactos `.joblib`, contrato de inferencia `predecir()`, caché SQLite, suite `unittest` (modelos + endpoints FastAPI), integridad del frontend y benchmark de 100 iteraciones ($P_{50}, P_{95}, P_{99}$), emitiendo `evidencias_finales/03_certificado_qa_e2e.png`:
-
+### Suite de Pruebas Unitarias + E2E y Benchmark de Latencia
 ```bash
-python pipeline/health_check.py
 python -m unittest tests/test_models.py -v
-```
-
-### Paso 5 — Arranque del Servidor Web en Producción / Desarrollo
-Inicia el backend FastAPI y la plataforma interactiva en `http://127.0.0.1:8080` (configurable con la variable de entorno `ALLOWED_ORIGINS`):
-
-```bash
-uvicorn main:app --port 8080
+python pipeline/benchmark_inference.py
 ```

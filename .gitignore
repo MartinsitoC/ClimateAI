@@ -32,3 +32,4 @@ open_meteo_cache.json
 !data/processed/curva_residuos.png
 !evidencias_finales/
 !evidencias_finales/*.png
+!.env.example

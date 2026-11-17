@@ -1609,7 +1609,7 @@ async def geocode_universal_city(
 # ==============================================================================
 # TAREA 2: ENDPOINTS DE GEOCODIFICACIÓN GLOBAL (SQLite + Nominatim) Y MODO SISTEMA
 # ==============================================================================
-SYSTEM_STATE: Dict[str, str] = {"mode": "demo"}
+SYSTEM_STATE: Dict[str, str] = {"mode": os.getenv("SYSTEM_DEFAULT_MODE", "demo").strip().lower()}
 
 
 @app.get("/api/geo/search", tags=["Global Geocoding"])
@@ -1857,27 +1857,12 @@ async def export_technical_report_image(payload: ExportReportRequest):
 
 
 if __name__ == "__main__":
-    import os
-    import time
-    import threading
-    import webbrowser
     import uvicorn
 
-    HOST = "127.0.0.1"
-    PORT = 8080
-    URL = f"http://{HOST}:{PORT}"
-
-    def launch_browser():
-        time.sleep(1.2)
-        try:
-            webbrowser.open(URL)
-        except Exception:
-            pass
-
-    try:
-        threading.Thread(target=launch_browser, daemon=True).start()
-        uvicorn.run(app, host=HOST, port=PORT, reload=False, workers=1)
-    except KeyboardInterrupt:
-        pass
-    finally:
-        os._exit(0)
+    uvicorn.run(
+        "main:app",
+        host=os.getenv("APP_HOST", "127.0.0.1"),
+        port=int(os.getenv("APP_PORT", 8080)),
+        log_level=os.getenv("LOG_LEVEL", "info"),
+        reload=False,
+    )
