@@ -1602,8 +1602,29 @@ async def get_universal_agent_telemetry(
 async def geocode_universal_city(
     q: str = Query(..., description="Nombre de cualquier ciudad del mundo")
 ):
-    """Geocodifica cualquier ciudad del mundo delegando en geocoding_service.search(q)."""
-    return await telemetry_agent.geocodificar_ciudad_universal(q)
+    """Geocodifica cualquier ciudad del mundo delegando directamente en await geocoding_service.search(q)."""
+    items = await geocoding_service.search(q)
+    resultados: List[Dict[str, Any]] = []
+    for item in items:
+        name = str(item.get("name") or q.strip())
+        country = str(item.get("country") or "")
+        display_name = str(item.get("display_name") or f"{name}, {country}".strip(", "))
+        resultados.append(
+            {
+                "city": name,
+                "name": name,
+                "display_name": display_name,
+                "country": country,
+                "admin1": "",
+                "lat": round(float(item.get("lat", 0.0)), 4),
+                "lon": round(float(item.get("lon", 0.0)), 4),
+                "type": str(item.get("type") or "city"),
+                "source": "NOMINATIM_SQLITE",
+            }
+        )
+    if not resultados:
+        return await telemetry_agent.geocodificar_ciudad_universal(q)
+    return resultados[:8]
 
 
 # ==============================================================================
@@ -1838,19 +1859,25 @@ async def export_technical_report(payload: ExportReportRequest):
 async def export_technical_report_image(payload: ExportReportRequest):
     """
     Renderiza la ficha ejecutiva de resiliencia climática y de red en formato PNG (300 DPI)
-    utilizando el motor gráfico de pipeline/visual_auditor.py, guarda una copia en
-    evidencias_finales/export_{ciudad}_{anio}.png y la retorna como descarga adjunta.
+    invocando renderizar_ficha_png de pipeline/visual_auditor.py, guarda respaldo en
+    evidencias_finales/export_{ciudad_limpia}_{anio}.png y la retorna como descarga adjunta.
     """
-    from pipeline.visual_auditor import renderizar_ficha_reporte_png
+    from pipeline.visual_auditor import renderizar_ficha_png
 
-    buf, _out_path, ciudad, anio = await asyncio.to_thread(
-        renderizar_ficha_reporte_png, payload.model_dump()
-    )
+    ciudad_limpia = "".join(ch if ch.isalnum() else "_" for ch in (payload.city or "Global")).strip("_") or "Global"
+    anio = int(payload.target_year or 2026)
+    out_path = BASE_DIR / "evidencias_finales" / f"export_{ciudad_limpia}_{anio}.png"
+
+    datos_ficha = payload.model_dump()
+    datos_ficha["lugar"] = payload.city or "Global"
+    datos_ficha["year"] = anio
+
+    png_bytes = await asyncio.to_thread(renderizar_ficha_png, datos_ficha, out_path)
     return Response(
-        content=buf.getvalue(),
+        content=png_bytes,
         media_type="image/png",
         headers={
-            "Content-Disposition": f'attachment; filename="Ficha_Resiliencia_{ciudad}_{anio}.png"',
+            "Content-Disposition": f'attachment; filename="Ficha_Resiliencia_{ciudad_limpia}_{anio}.png"',
             "Cache-Control": "no-store",
         },
     )
@@ -1863,6 +1890,5 @@ if __name__ == "__main__":
         "main:app",
         host=os.getenv("APP_HOST", "127.0.0.1"),
         port=int(os.getenv("APP_PORT", 8080)),
-        log_level=os.getenv("LOG_LEVEL", "info"),
         reload=False,
     )

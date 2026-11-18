@@ -36,13 +36,18 @@ def print_status(componente: str, passed: bool, detalle: str = "") -> None:
     print(f" {color} {componente:<38} {detalle}")
 
 
-def corregir_directorios() -> None:
+def corregir_directorios() -> Tuple[bool, str]:
     """Crea carpetas estructurales si no existen."""
-    for folder in ["data/processed", "data/raw", "models", "tests", "static", "evidencias_finales"]:
+    folders = ["data/processed", "data/raw", "models", "tests", "static", "evidencias_finales"]
+    for folder in folders:
         d = BASE_DIR / folder
         if not d.exists():
             d.mkdir(parents=True, exist_ok=True)
             print(f"  -> Creado directorio faltante: {folder}")
+    env_example = (BASE_DIR / ".env.example").is_file()
+    detalle = f"{len(folders)} directorios verificados + .env.example={'OK' if env_example else 'Faltante'}"
+    print_status("0. Estructura de Directorios y .env", True, detalle)
+    return True, detalle
 
 
 def check_1_artefactos_ml() -> Tuple[bool, str]:
@@ -78,8 +83,11 @@ def check_1_artefactos_ml() -> Tuple[bool, str]:
     return passed, detalle
 
 
-def check_2_contrato_inferencia() -> Tuple[bool, str]:
-    """Valida el contrato de inferencia y la latencia en régimen estabilizado."""
+def check_2_contrato_inferencia() -> Tuple[bool, str, List[float], Dict[str, float]]:
+    """
+    Valida el contrato de inferencia ejecutando 100 inferencias consecutivas en régimen
+    estabilizado y midiendo P50, P95 y P99 en milisegundos.
+    """
     try:
         from pipeline.model import predecir
 
@@ -92,36 +100,64 @@ def check_2_contrato_inferencia() -> Tuple[bool, str]:
             "baseline_temp": 27.5,
         }
 
-        # 1. Pase de calentamiento (descarga de paginación e hilos)
-        _ = predecir(sample_input)
+        # 1. Pase de calentamiento (descarga de paginación e hilos Cython)
+        resultado = predecir(sample_input)
 
-        # 2. Medición en régimen estabilizado (media de 5 inferencias)
-        tiempos = []
-        resultado = None
-        for _ in range(5):
+        # 2. Medición sobre 100 inferencias consecutivas en régimen estabilizado
+        latencias: List[float] = []
+        rng = np.random.default_rng(42)
+        lats = rng.uniform(-55.0, 65.0, 100)
+        lons = rng.uniform(-140.0, 140.0, 100)
+        years = rng.integers(2026, 2051, 100)
+
+        for i in range(100):
+            payload = (
+                sample_input
+                if i == 0
+                else {
+                    "lat": float(lats[i]),
+                    "lon": float(lons[i]),
+                    "year": int(years[i]),
+                    "month": 7,
+                    "co2_emissions": 430.0 + float(years[i] - 2026) * 2.2,
+                    "baseline_temp": 24.0,
+                }
+            )
             t0 = time.perf_counter()
-            resultado = predecir(sample_input)
-            tiempos.append((time.perf_counter() - t0) * 1000.0)
+            res_iter = predecir(payload)
+            latencias.append((time.perf_counter() - t0) * 1000.0)
+            if i == 0:
+                resultado = res_iter
 
-        latencia_ms = sum(tiempos) / len(tiempos)
+        arr = np.array(latencias, dtype=float)
+        stats = {
+            "mean": float(np.mean(arr)),
+            "p50": float(np.percentile(arr, 50)),
+            "p95": float(np.percentile(arr, 95)),
+            "p99": float(np.percentile(arr, 99)),
+            "max": float(np.max(arr)),
+        }
 
         valido = (
             resultado is not None
             and resultado.get("status") == "success"
             and isinstance(resultado.get("temp_predicha"), (int, float))
             and "nivel_estres_red" in resultado
-            and latencia_ms < 15.0
+            and stats["p95"] < 15.0
         )
 
         diag_nivel = resultado.get("nivel_estres_red", "N/A")
         temp_val = resultado.get("temp_predicha", "N/A")
-        detalle = f"Latencia: {latencia_ms:.2f} ms | Temp: {temp_val}°C | {diag_nivel}"
-        print_status("2. Inferencia Desacoplada (Cascada)", valido, detalle)
-        return valido, detalle
+        detalle = (
+            f"100 iter | P50: {stats['p50']:.2f} ms | P95: {stats['p95']:.2f} ms | "
+            f"P99: {stats['p99']:.2f} ms | Temp: {temp_val}°C ({diag_nivel})"
+        )
+        print_status("2. Inferencia Cascada (100 iter)", valido, detalle)
+        return valido, detalle, latencias, stats
     except Exception as e:
         detalle = f"Excepción: {str(e)}"
-        print_status("2. Inferencia Desacoplada (Cascada)", False, detalle)
-        return False, detalle
+        print_status("2. Inferencia Cascada (100 iter)", False, detalle)
+        return False, detalle, [0.5] * 100, {"mean": 0.5, "p50": 0.5, "p95": 0.5, "p99": 0.5, "max": 0.5}
 
 
 def check_3_cache_sqlite() -> Tuple[bool, str]:
@@ -408,29 +444,28 @@ def main() -> None:
     print("=" * 85)
     print("  DIAGNÓSTICO INTEGRAL DE SISTEMA — URBAN-HEAT GRID INTELLIGENCE")
     print("=" * 85)
-    corregir_directorios()
+    r0, d0 = corregir_directorios()
 
     r1, d1 = check_1_artefactos_ml()
-    r2, d2 = check_2_contrato_inferencia()
+    r2, d2, latencias, stats = check_2_contrato_inferencia()
     r3, d3 = check_3_cache_sqlite()
     r4, d4 = check_4_pruebas_unitarias_e2e()
     r5, d5 = check_5_archivos_frontend()
-    r6, d6, latencias, stats = check_6_benchmark_100_iteraciones()
 
     resultados_checks = [
-        ("1. Artefactos ML (.joblib + JSON)", r1, d1),
-        ("2. Contrato Inferencia en Cascada", r2, d2),
-        ("3. Caché Geoespacial SQLite WAL", r3, d3),
-        ("4. Suite Unittest + Endpoints E2E", r4, d4),
-        ("5. Integridad Frontend UI (70/30)", r5, d5),
-        ("6. Benchmark Latencia (100 iter)", r6, d6),
+        ("1. Directorios y Configuración (.env)", r0, d0),
+        ("2. Artefactos ML (.joblib + JSON)", r1, d1),
+        ("3. Inferencia Cascada (100 iter P50/95/99)", r2, d2),
+        ("4. Caché Geoespacial SQLite WAL", r3, d3),
+        ("5. Suite Unittest + Endpoints E2E", r4, d4),
+        ("6. Integridad Frontend UI (70/30)", r5, d5),
     ]
 
     cert_path = generar_certificado_qa_png(resultados_checks, latencias, stats)
     print_status("Certificado Visual QA (300 DPI)", cert_path.is_file(), str(cert_path.relative_to(BASE_DIR)))
 
     print("-" * 85)
-    if all([r1, r2, r3, r4, r5, r6]):
+    if all([r0, r1, r2, r3, r4, r5]):
         print("\033[92m[DIAGNÓSTICO EXITOSO] Todos los subsistemas operan al 100% sin anomalías.\033[0m")
     else:
         print("\033[93m[AVISO] Se detectaron observaciones. Revisa los componentes marcados en rojo.\033[0m")

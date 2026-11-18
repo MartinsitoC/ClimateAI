@@ -433,7 +433,7 @@
                                 [CATÁLOGO BASE: 1850-2013]
                             </span>
                             <span id="era5LoadingIndicator" class="hidden text-[9px] font-mono font-semibold px-2 py-0.5 rounded border bg-amber-500/15 text-amber-400 border-amber-500/40 animate-pulse shrink-0">
-                                ⏳ Cargando serie ERA5...
+                                ⏳ Sincronizando serie satelital ERA5...
                             </span>
                         </div>
                         <button id="btn-reset-city" onclick="resetCiudad()" class="hidden text-[10px] bg-amber-500/15 hover:bg-amber-500/25 text-orange-600 dark:text-amber-400 border border-amber-500/30 px-2 py-0.5 rounded-lg transition-all shrink-0 font-semibold">
@@ -488,10 +488,15 @@
                             <span id="semaforo-sub" class="text-[10px] text-slate-500 dark:text-slate-400 block truncate">Horizonte de Proyección 2040</span>
                         </div>
                     </div>
-                    <button id="btnExportReport" onclick="exportarFichaTecnica()" class="text-[10px] font-bold bg-orange-600 hover:bg-orange-500 text-white border border-orange-600 px-2.5 py-1 rounded-lg transition-all flex items-center gap-1 shadow-sm shrink-0">
-                        <span>📥</span>
-                        <span>Exportar Ficha</span>
-                    </button>
+                    <div class="flex items-center gap-1 shrink-0">
+                        <button id="btnExportReport" onclick="exportarFichaTecnica('png')" title="Exportar Ficha Ejecutiva PNG (300 DPI)" class="text-[10px] font-bold bg-orange-600 hover:bg-orange-500 text-white border border-orange-600 px-2.5 py-1 rounded-lg transition-all flex items-center gap-1 shadow-sm shrink-0">
+                            <span>📥</span>
+                            <span>Exportar Ficha</span>
+                        </button>
+                        <button id="btnExportReportJson" onclick="exportarFichaTecnica('json')" title="Descargar Ficha Estructurada de Auditoría (JSON)" class="text-[10px] font-bold bg-slate-800 hover:bg-slate-700 text-amber-400 border border-slate-700 px-2 py-1 rounded-lg transition-all font-mono shadow-sm shrink-0">
+                            JSON
+                        </button>
+                    </div>
                 </div>
 
                 <!-- Grid de Métricas de Ingeniería Energética -->
@@ -590,6 +595,11 @@
                 </div>
                 <div class="flex-1 w-full min-h-0 relative">
                     <canvas id="canvasCurvaTermica" class="w-full h-64"></canvas>
+                    <div id="era5CurveLoadingOverlay" class="hidden absolute inset-0 bg-slate-900/75 backdrop-blur-[1px] rounded-lg flex items-center justify-center z-10 pointer-events-none">
+                        <span class="text-[11px] font-mono font-semibold text-amber-400 bg-slate-950/90 border border-amber-500/40 px-3 py-1.5 rounded-xl shadow-lg animate-pulse">
+                            ⏳ Sincronizando serie satelital ERA5...
+                        </span>
+                    </div>
                 </div>
             </div>
 
@@ -2000,11 +2010,29 @@
             }
         }
 
+        let era5LoadingCount = 0;
+        function setIndicadorCargaERA5(activo, texto = '⏳ Sincronizando serie satelital ERA5...') {
+            era5LoadingCount = activo ? (era5LoadingCount + 1) : Math.max(0, era5LoadingCount - 1);
+            const isVisible = era5LoadingCount > 0;
+            const loadingEl = document.getElementById('era5LoadingIndicator');
+            const overlayEl = document.getElementById('era5CurveLoadingOverlay');
+            if (loadingEl) {
+                loadingEl.textContent = texto;
+                loadingEl.classList.toggle('hidden', !isVisible);
+            }
+            if (overlayEl) {
+                const spanEl = overlayEl.querySelector('span');
+                if (spanEl) spanEl.textContent = texto;
+                overlayEl.classList.toggle('hidden', !isVisible);
+            }
+        }
+
         async function cargarClimaEnVivo(lat, lon) {
             const liveCard = document.getElementById('liveWeatherCard');
             if (liveCard && systemMode === 'live') {
                 liveCard.classList.remove('hidden');
             }
+            setIndicadorCargaERA5(true, '⏳ Sincronizando serie satelital ERA5...');
             try {
                 const res = await fetch(`/api/weather/live?lat=${lat}&lon=${lon}`);
                 if (!res.ok) throw new Error("Status " + res.status);
@@ -2019,6 +2047,8 @@
                 if (elTemp && (elTemp.innerText === '--' || !elTemp.innerText)) elTemp.innerText = '29.5 °C*';
                 if (elSens && (elSens.innerText === '--' || !elSens.innerText)) elSens.innerText = '31.2 °C*';
                 if (elHum && (elHum.innerText === '--' || !elHum.innerText)) elHum.innerText = '65% / 24.1°';
+            } finally {
+                setIndicadorCargaERA5(false);
             }
         }
 
@@ -2027,7 +2057,7 @@
             if (!container) {
                 container = document.createElement('div');
                 container.id = 'toastContainer';
-                container.className = 'fixed bottom-16 left-1/2 -translate-x-1/2 z-[2500] flex flex-col items-center gap-2 pointer-events-none';
+                container.className = 'fixed bottom-28 left-6 z-[2500] flex flex-col items-start gap-2 pointer-events-none';
                 document.body.appendChild(container);
             }
 
@@ -2145,11 +2175,7 @@
             const numLon = parseFloat(lon);
             const label = placeName || selectedCity || `Coord (${numLat.toFixed(2)}°, ${numLon.toFixed(2)}°)`;
 
-            const loadingEl = document.getElementById('era5LoadingIndicator');
-            if (loadingEl) {
-                loadingEl.textContent = '⏳ Cargando serie ERA5...';
-                loadingEl.classList.remove('hidden');
-            }
+            setIndicadorCargaERA5(true, '⏳ Sincronizando serie satelital ERA5...');
 
             let curve;
             try {
@@ -2157,7 +2183,7 @@
                 if (!res.ok) throw new Error(`HTTP ${res.status}`);
                 curve = await res.json();
             } finally {
-                if (loadingEl) loadingEl.classList.add('hidden');
+                setIndicadorCargaERA5(false);
             }
 
             const histSeries = (curve.historial || []).map(h => ({
@@ -2620,6 +2646,7 @@
 
         let sliderRafId = null;
         let pendingSliderYear = null;
+        let sliderAbortController = null;
 
         function aplicarAno(year) {
             const puntosAno = AppState.timeline[String(year)];
@@ -2632,9 +2659,12 @@
             }
         }
 
-        // PASO 3: Desacoplar el desplazamiento del slider del DOM mediante requestAnimationFrame
+        // PASO 3: Desacoplar el desplazamiento del slider del DOM mediante requestAnimationFrame y AbortController (60 FPS)
         function updateHeatmapForYear(selectedYear) {
             pendingSliderYear = parseInt(selectedYear, 10);
+            if (sliderAbortController) {
+                sliderAbortController.abort();
+            }
             if (sliderRafId !== null) return;
             sliderRafId = requestAnimationFrame(() => {
                 sliderRafId = null;
@@ -2642,12 +2672,13 @@
                 AppState.year = pendingSliderYear;
                 actualizarIndicadorAno();
                 aplicarAno(AppState.year);
-                if (AppState.selectedCity) {
-                    const sc = AppState.selectedCoords;
-                    const m = markersByCity[AppState.selectedCity];
+                const activeCity = AppState.selectedCity || selectedCity;
+                const sc = selectedCoords || AppState.selectedCoords;
+                if (activeCity || (sc && (systemMode === 'live' || modoInspeccionActivo))) {
+                    const m = activeCity ? markersByCity[activeCity] : null;
                     const latVal = sc ? sc.lat : (m ? m.getLatLng().lat : 19.43);
                     const lonVal = sc ? sc.lon : (m ? m.getLatLng().lng : -99.13);
-                    ejecutarInferenciaML(AppState.selectedCity, AppState.year, latVal, lonVal);
+                    ejecutarInferenciaML(activeCity || 'Coordenada Global', AppState.year, latVal, lonVal);
                 }
             });
         }
@@ -2755,10 +2786,15 @@
             }
         }
 
-        // CARGA DE DATOS PARA EL AÑO SELECCIONADO (FALLBACK DE RED)
+        // CARGA DE DATOS PARA EL AÑO SELECCIONADO (FALLBACK DE RED CON ABORTCONTROLLER)
         async function cargarDatosAno(year) {
+            if (sliderAbortController) {
+                sliderAbortController.abort();
+            }
+            sliderAbortController = new AbortController();
+            const { signal } = sliderAbortController;
             try {
-                const res = await fetch(`/api/climate-data?year=${year}`);
+                const res = await fetch(`/api/climate-data?year=${year}`, { signal });
                 if (!res.ok) return;
                 const data = await res.json();
                 const puntos = normalizarPuntos(data.puntos);
@@ -2767,6 +2803,7 @@
                 renderMarkers(puntos);
                 actualizarPuntoEnGrafico(year);
             } catch (err) {
+                if (err && err.name === 'AbortError') return;
                 console.error("Error al cargar año:", err);
             }
         }
@@ -3376,9 +3413,10 @@
         }
 
         // ==========================================
-        // 4. OPERATIVIDAD DEL BOTÓN [EXPORTAR FICHA] (POST /api/export/report-image)
+        // 4. OPERATIVIDAD DEL BOTÓN [EXPORTAR FICHA] (PNG /api/export/report-image y JSON /api/export/report)
         // ==========================================
-        async function exportarFichaTecnica() {
+        async function exportarFichaTecnica(formato = 'png') {
+            const fmt = (typeof formato === 'string' && formato.toLowerCase() === 'json') ? 'json' : 'png';
             const pred = lastPredictionData || {};
             const detail = cityDetailData || {};
             const live = lastLiveWeatherData || {};
@@ -3416,18 +3454,26 @@
                 action_plan: actionCards.length > 0 ? actionCards : (pred.plan_accion || detail.medidas_prescriptivas || [])
             };
 
-            mostrarToast(`🖼️ Renderizando ficha ejecutiva PNG (300 DPI) para ${cityVal}...`, 'cyan');
+            const safeCity = cityVal.replace(/[^a-zA-Z0-9_-]/g, '_') || 'Global';
+            const isJson = fmt === 'json';
+            const endpoint = isJson ? '/api/export/report' : '/api/export/report-image';
+            const filename = `Ficha_Resiliencia_${safeCity}_${yearVal}.${isJson ? 'json' : 'png'}`;
+
+            mostrarToast(
+                isJson
+                    ? `📄 Generando ficha estructurada JSON para ${cityVal}...`
+                    : `🖼️ Renderizando ficha ejecutiva PNG (300 DPI) para ${cityVal}...`,
+                'cyan'
+            );
 
             try {
-                const res = await fetch('/api/export/report-image', {
+                const res = await fetch(endpoint, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(payload)
                 });
                 if (!res.ok) throw new Error(`HTTP ${res.status}`);
                 const blob = await res.blob();
-                const safeCity = cityVal.replace(/[^a-zA-Z0-9_-]/g, '_') || 'Global';
-                const filename = `Ficha_Resiliencia_${safeCity}_${yearVal}.png`;
                 const url = URL.createObjectURL(blob);
                 const a = document.createElement('a');
                 a.href = url;
@@ -3436,16 +3482,20 @@
                 a.click();
                 a.remove();
                 setTimeout(() => URL.revokeObjectURL(url), 1000);
-                mostrarToast(`✅ Ficha ejecutiva exportada: ${filename}`, 'success');
+                mostrarToast(`✅ Ficha exportada: ${filename}`, 'success');
             } catch (err) {
                 console.error('Error al exportar ficha técnica:', err);
-                mostrarToast('❌ Error al generar la ficha ejecutiva PNG', 'error');
+                mostrarToast(`❌ Error al generar la ficha ${fmt.toUpperCase()}`, 'error');
             }
         }
 
         const btnExportar = document.getElementById('btnExportReport') || document.getElementById('btnExportar');
         if (btnExportar) {
-            btnExportar.onclick = exportarFichaTecnica;
+            btnExportar.onclick = () => exportarFichaTecnica('png');
+        }
+        const btnExportarJson = document.getElementById('btnExportReportJson');
+        if (btnExportarJson) {
+            btnExportarJson.onclick = () => exportarFichaTecnica('json');
         }
 
         // ==========================================
@@ -3829,6 +3879,15 @@
                 return;
             }
             if (e.key === 'Escape' || e.key === 'Esc') {
+                const suggestionsBox = document.getElementById('searchSuggestions');
+                if (suggestionsBox && !suggestionsBox.classList.contains('hidden')) {
+                    suggestionsBox.classList.add('hidden');
+                }
+                const settingsMenu = document.getElementById('settingsDropdown');
+                if (settingsMenu && !settingsMenu.classList.contains('hidden')) {
+                    settingsMenu.classList.add('hidden');
+                    document.removeEventListener('click', closeSettingsOnOutsideClick);
+                }
                 if (document.fullscreenElement || document.webkitFullscreenElement) {
                     document.exitFullscreen().catch(() => {});
                 }

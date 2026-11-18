@@ -35,7 +35,9 @@ class GlobalGeocodingService:
         self.db_path = db_path
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._db_lock = threading.Lock()
-        self._nominatim_sem = asyncio.Semaphore(1)
+        self._nominatim_lock = asyncio.Lock()
+        self._last_external_call: float = 0.0
+        self._nominatim_sem = self._nominatim_lock
         self._last_nominatim_call: float = 0.0
         self._l1_search: Dict[str, List[Dict[str, Any]]] = {}
         self._l1_reverse: Dict[str, Dict[str, Any]] = {}
@@ -192,16 +194,19 @@ class GlobalGeocodingService:
     async def _throttled_fetch_nominatim(self, url: str, timeout: float = 5.0) -> Any:
         """
         Ejecuta peticiones HTTP externas a Nominatim respetando un espaciado mínimo
-        de 1.05s mediante asyncio.Semaphore(1) sin afectar las lecturas desde RAM o SQLite.
+        de 1.05s mediante self._nominatim_lock y self._last_external_call sin penalizar
+        las respuestas servidas desde caché L1 (RAM) o L2 (SQLite places_cache).
         """
-        async with self._nominatim_sem:
-            elapsed = time.monotonic() - self._last_nominatim_call
+        async with self._nominatim_lock:
+            elapsed = time.monotonic() - self._last_external_call
             if elapsed < NOMINATIM_MIN_INTERVAL_SEC:
                 await asyncio.sleep(NOMINATIM_MIN_INTERVAL_SEC - elapsed)
             try:
                 return await asyncio.to_thread(self._fetch_nominatim_json, url, timeout)
             finally:
-                self._last_nominatim_call = time.monotonic()
+                now_mono = time.monotonic()
+                self._last_external_call = now_mono
+                self._last_nominatim_call = now_mono
 
     @staticmethod
     def _parse_nominatim_item(item: Dict[str, Any]) -> Optional[Dict[str, Any]]:
