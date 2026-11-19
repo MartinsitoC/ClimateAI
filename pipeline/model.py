@@ -363,11 +363,14 @@ class UrbanHeatInferenceEngine:
         self,
         lat: float,
         lon: float,
-        year: int,
-        month: int,
-        co2: float,
-        baseline: float,
+        year: int = 2026,
+        month: int = 7,
+        co2: float = 425.0,
+        baseline: Optional[float] = None,
     ) -> Dict[str, Any]:
+        if baseline is None:
+            baseline = self._estimar_baseline_por_latitud(float(lat))
+        baseline = float(baseline)
         X_reg = np.array([[float(lat), float(lon), float(year), float(month), float(co2)]], dtype=np.float32)
         predicciones_arboles = np.fromiter(
             (t.predict(X_reg)[0, 0] for t in self._rf_trees),

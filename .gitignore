@@ -18,6 +18,7 @@ Thumbs.db
 data/geo_cache.db
 data/geo_cache.db-shm
 data/geo_cache.db-wal
+data/processed/global_cache_snapshot.pkl
 open_meteo_cache.json
 *GlobalLandTemperaturesByCity.csv
 

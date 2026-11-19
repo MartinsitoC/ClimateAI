@@ -176,6 +176,67 @@ class TestFastAPIEndpoints(unittest.TestCase):
         self.assertTrue(resp.content.startswith(b"\x89PNG\r\n\x1a\n"), "El binario devuelto no tiene firma PNG válida")
         self.assertGreater(len(resp.content), 10240)
 
+    def test_05_get_global_viewport_nodes_lod(self) -> None:
+        resp = self.client.get(
+            "/api/global/viewport-nodes",
+            params={
+                "south": 14.0,
+                "west": -118.0,
+                "north": 33.0,
+                "east": -85.0,
+                "zoom": 4,
+                "year": 2035,
+            },
+        )
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+        self.assertEqual(data.get("status"), "success")
+        self.assertEqual(data.get("zoom_tier"), "megacity")
+        self.assertIn("nodes", data)
+        self.assertGreater(len(data["nodes"]), 0)
+        first = data["nodes"][0]
+        for key in ("name", "lat", "lon", "tier", "temp", "risk_level"):
+            self.assertIn(key, first)
+
+    def test_06_post_ai_chat_domain_filter_and_fly_to(self) -> None:
+        # 1. Filtro estricto de dominio (bloquea temas ajenos al clima)
+        resp_off = self.client.post(
+            "/api/ai/chat",
+            json={
+                "message": "Cuéntame un chiste o cuánto es 2+2",
+                "current_city": "Cancun",
+                "current_lat": 21.16,
+                "current_lon": -86.85,
+                "current_year": 2026,
+                "current_temp": 27.5,
+                "current_risk": "RIESGO MODERADO",
+            },
+        )
+        self.assertEqual(resp_off.status_code, 200)
+        body_off = resp_off.json()
+        self.assertIsNone(body_off.get("action"))
+        self.assertIn("Solo puedo responder preguntas sobre temperaturas", body_off.get("reply", ""))
+
+        # 2. Extracción de lugar y año con navegación fly_to
+        resp_nav = self.client.post(
+            "/api/ai/chat",
+            json={
+                "message": "¿Qué calor hará en Tulum en 2040?",
+                "current_city": "Vista Global",
+                "current_lat": 20.0,
+                "current_lon": 0.0,
+                "current_year": 2026,
+                "current_temp": 22.0,
+                "current_risk": "RIESGO MODERADO",
+            },
+        )
+        self.assertEqual(resp_nav.status_code, 200)
+        body_nav = resp_nav.json()
+        self.assertIsNotNone(body_nav.get("action"))
+        self.assertEqual(body_nav["action"]["type"], "fly_to")
+        self.assertEqual(body_nav["action"]["year"], 2040)
+        self.assertAlmostEqual(float(body_nav["action"]["lat"]), 20.21, delta=1.0)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

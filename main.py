@@ -1,8 +1,12 @@
 import os
+import re
 import sys
 import json
 import time
+import pickle
 import asyncio
+import threading
+import webbrowser
 import urllib.request
 import urllib.parse
 from pathlib import Path
@@ -26,6 +30,7 @@ from pipeline.model import UrbanHeatInferenceEngine, PredictionInput, Prediction
 from services.geocoding import geocoding_service
 from services.weather_api import weather_service
 from services.historical_weather import obtener_historial_real_global
+from services.viewport_cities import obtener_nodos_viewport, GLOBAL_MAJOR_CITIES
 
 # Rutas de archivos normalizadas con pathlib.Path
 CSV_CANDIDATES = [
@@ -36,6 +41,7 @@ CSV_CANDIDATES = [
 CSV_FILE: Path = next((p for p in CSV_CANDIDATES if p.is_file()), CSV_CANDIDATES[0])
 GLOBAL_CSV_FILE: Path = BASE_DIR / "Temperaturas" / "Global Land Temperatures" / "GlobalTemperatures.csv"
 CACHE_FILE: Path = BASE_DIR / "open_meteo_cache.json"
+GLOBAL_CACHE_SNAPSHOT_PATH: Path = BASE_DIR / "data" / "processed" / "global_cache_snapshot.pkl"
 STATIC_DIR: Path = BASE_DIR / "static"
 IMG_DIR: Path = BASE_DIR / "Img"
 
@@ -433,6 +439,34 @@ def inicializar_dataset_en_memoria():
     if not CSV_FILE.is_file():
         raise FileNotFoundError(f"No se encontró el dataset en: {CSV_FILE}")
 
+    csv_signature = (os.path.getmtime(CSV_FILE), os.path.getsize(CSV_FILE))
+    if GLOBAL_CACHE_SNAPSHOT_PATH.is_file():
+        try:
+            with GLOBAL_CACHE_SNAPSHOT_PATH.open("rb") as f:
+                snap = pickle.load(f)
+            if isinstance(snap, dict) and snap.get("signature") == csv_signature:
+                METADATA_CIUDADES.clear()
+                METADATA_CIUDADES.update(snap["metadata_ciudades"])
+                ANOS_HISTORICOS = snap["anos_historicos"]
+                GLOBAL_HISTORIAL.clear()
+                GLOBAL_HISTORIAL.update(snap["global_historial"])
+                GLOBAL_MODEL.clear()
+                GLOBAL_MODEL.update(snap["global_model"])
+                PROYECCION_ANOS = snap["proyeccion_anos"]
+                GLOBAL_CACHE.clear()
+                GLOBAL_CACHE.update(snap["global_cache"])
+                index_path = STATIC_DIR / "index.html"
+                if index_path.is_file():
+                    GLOBAL_CACHE["index_html"] = index_path.read_text(encoding="utf-8")
+                elapsed_ms = (time.perf_counter() - t0) * 1000.0
+                print(
+                    f"[OK] GLOBAL_CACHE listo desde snapshot binario en {elapsed_ms:.1f} ms "
+                    f"({len(METADATA_CIUDADES)} ciudades en RAM)."
+                )
+                return
+        except Exception:
+            pass
+
     open_meteo_cache = cargar_cache_meteo()
 
     # Lectura única del dataset desde disco
@@ -696,6 +730,26 @@ def inicializar_dataset_en_memoria():
     if index_path.is_file():
         GLOBAL_CACHE["index_html"] = index_path.read_text(encoding="utf-8")
 
+    # 6. Guardar snapshot binario con firma (mtime, size) para arranques instantáneos futuros
+    try:
+        GLOBAL_CACHE_SNAPSHOT_PATH.parent.mkdir(parents=True, exist_ok=True)
+        with GLOBAL_CACHE_SNAPSHOT_PATH.open("wb") as f:
+            pickle.dump(
+                {
+                    "signature": csv_signature,
+                    "metadata_ciudades": METADATA_CIUDADES,
+                    "anos_historicos": ANOS_HISTORICOS,
+                    "global_historial": GLOBAL_HISTORIAL,
+                    "global_model": GLOBAL_MODEL,
+                    "proyeccion_anos": PROYECCION_ANOS,
+                    "global_cache": GLOBAL_CACHE,
+                },
+                f,
+                protocol=pickle.HIGHEST_PROTOCOL,
+            )
+    except Exception:
+        pass
+
     elapsed_ms = (time.perf_counter() - t0) * 1000.0
     print(f"[OK] GLOBAL_CACHE listo en {elapsed_ms:.1f} ms ({len(METADATA_CIUDADES)} ciudades, {len(rango_completo)} años en RAM).")
 
@@ -705,6 +759,11 @@ async def lifespan(app: FastAPI):
     """Manejador de ciclo de vida FastAPI: carga única y pre-computación total en GLOBAL_CACHE (RAM)."""
     if not METADATA_CIUDADES:
         inicializar_dataset_en_memoria()
+    if os.getenv("OPEN_BROWSER_ON_START") == "1":
+        os.environ["OPEN_BROWSER_ON_START"] = "0"
+        host = os.getenv("APP_HOST", "127.0.0.1")
+        port = int(os.getenv("APP_PORT", 8080))
+        threading.Timer(0.6, lambda: webbrowser.open(f"http://{host}:{port}")).start()
     yield
     GLOBAL_CACHE.clear()
     METADATA_CIUDADES.clear()
@@ -1705,22 +1764,20 @@ inference_engine = UrbanHeatInferenceEngine()
 engine = inference_engine
 
 
-@app.get("/api/global/thermal-curve", tags=["Global Thermal Curve (ERA5 + ML)"])
-async def get_global_thermal_curve(lat: float, lon: float):
-    """
-    Entrega el historial real observado (1940-2025) vía Open-Meteo ERA5 Reanalysis
-    y la proyección ML (2026-2050) calculada por RandomForestRegressor + GradientBoosting
-    para cualquier punto del planeta, sin tocar el dataset demo.
-    """
-    # 1. Obtener historial real ERA5 (1940-2025)
-    historial = await obtener_historial_real_global(lat, lon)
+@app.get("/api/global/viewport-nodes", tags=["Global Viewport LOD"])
+async def get_global_viewport_nodes(
+    south: float,
+    west: float,
+    north: float,
+    east: float,
+    zoom: int = 4,
+    year: int = 2026,
+):
+    return await obtener_nodos_viewport(south, west, north, east, zoom, year)
 
-    # Calcular baseline real (1961-1990)
-    temps_base = [p["temp"] for p in historial if 1961 <= p["year"] <= 1990]
-    baseline_temp = float(np.mean(temps_base)) if temps_base else (historial[-1]["temp"] - 0.8 if historial else 20.0)
 
-    # 2. Proyectar con el RandomForestRegressor + GradientBoosting (2026 - 2050)
-    proyeccion = []
+def _proyectar_curva_25_anios_sync(lat: float, lon: float, baseline_temp: float) -> List[Dict[str, Any]]:
+    proyeccion: List[Dict[str, Any]] = []
     co2_estimado = 425.0
     for year in range(2026, 2051):
         co2_estimado += 2.3  # Incremento tendencial CO2
@@ -1740,6 +1797,25 @@ async def get_global_thermal_curve(lat: float, lon: float):
                 "plan_accion": pred["plan_accion"],
             }
         )
+    return proyeccion
+
+
+@app.get("/api/global/thermal-curve", tags=["Global Thermal Curve (ERA5 + ML)"])
+async def get_global_thermal_curve(lat: float, lon: float):
+    """
+    Entrega el historial real observado (1940-2025) vía Open-Meteo ERA5 Reanalysis
+    y la proyección ML (2026-2050) calculada por RandomForestRegressor + GradientBoosting
+    para cualquier punto del planeta, sin tocar el dataset demo.
+    """
+    # 1. Obtener historial real ERA5 (1940-2025)
+    historial = await obtener_historial_real_global(lat, lon)
+
+    # Calcular baseline real (1961-1990)
+    temps_base = [p["temp"] for p in historial if 1961 <= p["year"] <= 1990]
+    baseline_temp = float(np.mean(temps_base)) if temps_base else (historial[-1]["temp"] - 0.8 if historial else 20.0)
+
+    # 2. Proyectar con el RandomForestRegressor + GradientBoosting (2026 - 2050) en hilo separado
+    proyeccion = await asyncio.to_thread(_proyectar_curva_25_anios_sync, lat, lon, baseline_temp)
 
     return {
         "status": "success",
@@ -1883,9 +1959,314 @@ async def export_technical_report_image(payload: ExportReportRequest):
     )
 
 
+class ThermalChatRequest(BaseModel):
+    message: str = Field(..., description="Pregunta del usuario en el mini-chat")
+    current_city: str = Field(default="Vista Global")
+    current_lat: float = Field(default=20.0)
+    current_lon: float = Field(default=0.0)
+    current_year: int = Field(default=2026)
+    current_temp: float = Field(default=22.0)
+    current_risk: str = Field(default="RIESGO MODERADO")
+
+
+_OFF_TOPIC_PATTERNS = re.compile(
+    r"\b(chiste|broma|fútbol|futbol|partido|mundial|gol|receta|cocina|cocinar|pizza|pastel|"
+    r"python|javascript|java|c\+\+|html|css|sql|código|codigo|programar|algoritmo|ecuación|ecuacion|"
+    r"derivada|integral|raíz cuadrada|raiz cuadrada|multiplica|divide|suma|resta|política|politica|"
+    r"presidente|elecciones|religión|religion|horóscopo|horoscopo|película|pelicula|canción|cancion|"
+    r"novela|poema|bitcoin|cripto|acciones|bolsa)\b|(\d+\s*[\+\-\*\/]\s*\d+)",
+    re.IGNORECASE,
+)
+
+_CLIMATE_DOMAIN_PATTERNS = re.compile(
+    r"\b(temp|temperatura|temperaturas|calor|frío|frio|clima|grados|°c|°f|humedad|sensación|sensacion|"
+    r"térmica|termica|aire acondicionado|hvac|refrigeración|refrigeracion|enfriamiento|calentamiento|"
+    r"anomalía|anomalia|riesgo|red|eléctric|electric|transformador|apagón|apagon|sobrecarga|estrés|estres|"
+    r"gráfica|grafica|curva|línea|linea|punteada|sombra|banda|barra|barras|roja|rojas|cdd|"
+    r"proyección|proyeccion|futuro|históric|historic|pasado|tendencia|extremo|subir|subirá|subira|"
+    r"bajar|bajará|bajara|llévame|llevame|busca|buscar|muéstrame|muestrame|ir a|ve a|mapa|ciudad|"
+    r"pueblo|país|pais|comunidad|municipio|dónde|donde|18[5-9]\d|19\d\d|20[0-9]\d)\b",
+    re.IGNORECASE,
+)
+
+_PLACE_STOPWORDS = {
+    "que", "qué", "como", "cómo", "cual", "cuál", "cuanto", "cuánto", "cuanta", "cuánta",
+    "temperatura", "temperaturas", "calor", "frio", "frío", "clima", "grados", "humedad",
+    "sensacion", "sensación", "termica", "térmica", "hace", "hara", "hará", "habra", "habrá",
+    "hay", "estara", "estará", "sera", "será", "tiene", "tendra", "tendrá", "en", "de", "del",
+    "para", "por", "con", "sin", "sobre", "entre", "hacia", "hasta", "desde", "llevame", "llévame",
+    "ir", "ve", "vamos", "a", "al", "busca", "buscar", "muestrame", "muéstrame", "enseñame",
+    "enséñame", "ver", "el", "la", "los", "las", "un", "una", "unos", "unas", "año", "anio",
+    "años", "hoy", "ahora", "actual", "futuro", "futura", "proyeccion", "proyección", "grafica",
+    "gráfica", "curva", "red", "electrica", "eléctrica", "riesgo", "estres", "estrés", "explica",
+    "explicame", "explícame", "significa", "significan", "barras", "barra", "rojas", "roja", "cdd",
+    "linea", "línea", "punteada", "solida", "sólida", "sombra", "banda", "extremo", "extrema",
+    "aire", "acondicionado", "consumo", "electrico", "eléctrico", "promedio", "historico",
+    "histórico", "esta", "está", "este", "esto", "esa", "ese", "eso", "aqui", "aquí", "ahi", "ahí",
+    "alli", "allí", "lugar", "ciudad", "pueblo", "pais", "país", "comunidad", "municipio", "mundo",
+    "global", "planeta", "mapa", "subira", "subirá", "bajara", "bajará", "cambiara", "cambiará",
+    "tanto", "mucho", "poco", "mas", "más", "menos", "es", "son", "fue", "eran", "se", "espera",
+    "estima", "pronostica", "predice", "dice", "marca", "indica", "pasa", "ocurre", "sucede",
+    "cuando", "cuándo", "donde", "dónde", "porque", "porqué", "favor", "hola", "buenos", "dias",
+    "días", "tardes", "noches", "gracias", "mañana", "manana", "ayer", "pronto", "ahora",
+    "anual", "futuro", "pasado", "hoy", "extremo", "extrema",
+}
+
+
+def _extraer_candidato_lugar(msg: str, current_city: str) -> Optional[str]:
+    clean = re.sub(r"[¿\?¡!\"'«»\(\)\[\]\{\};:]", " ", msg)
+    clean = re.sub(r"\b(18[5-9]\d|19\d\d|20[0-9]\d)\b", " ", clean)
+
+    # 1. Intentar patrón explícito después de preposición o verbo de navegación
+    pat_prep = re.search(
+        r"\b(?:en|a|hacia|busca|buscar|llévame a|llevame a|muéstrame|muestrame|ir a|ve a|clima de|calor de|temperatura de)\s+([A-Za-zÁÉÍÓÚÜÑáéíóúüñ][A-Za-zÁÉÍÓÚÜÑáéíóúüñ\s,\.\-]{1,40})",
+        clean,
+        re.IGNORECASE,
+    )
+    if pat_prep:
+        raw_cand = pat_prep.group(1)
+        tokens = []
+        for tok in raw_cand.replace(",", " ").split():
+            t_low = tok.strip(".- ").lower()
+            if not t_low:
+                continue
+            if t_low in _PLACE_STOPWORDS and t_low not in ("san", "santa", "los", "las", "el", "la", "del", "de", "rio", "río"):
+                break
+            tokens.append(tok.strip(".- "))
+        while tokens and tokens[-1].lower() in _PLACE_STOPWORDS:
+            tokens.pop()
+        while tokens and tokens[0].lower() in ("el", "la", "un", "una", "ciudad", "pueblo", "país", "pais", "municipio"):
+            tokens.pop(0)
+        cand = " ".join(tokens).strip()
+        if len(cand) >= 3 and cand.lower() not in _PLACE_STOPWORDS:
+            if not current_city or cand.lower() != current_city.strip().lower():
+                return cand
+
+    # 2. Fallback sin preposición: solo si la frase tiene <= 3 palabras (ej. "Tulum", "Madrid 2040", "Playa del Carmen")
+    words = [w.strip(",.- ") for w in clean.split() if w.strip(",.- ")]
+    if len(words) <= 3:
+        filtered = [w for w in words if w and w.lower() not in _PLACE_STOPWORDS and not w.isdigit()]
+        cand_fallback = " ".join(filtered).strip()
+        if 3 <= len(cand_fallback) <= 38 and len(filtered) >= 1:
+            if not current_city or cand_fallback.lower() != current_city.strip().lower():
+                return cand_fallback
+    return None
+
+
+@app.post("/api/ai/chat", tags=["Thermal AI Copilot"])
+async def thermal_ai_chat(payload: ThermalChatRequest):
+    """
+    Mini-Chat Térmico Inteligente:
+    1. Filtra estrictamente cualquier tema ajeno a temperaturas, clima, calor o navegación geográfica.
+    2. Extrae automáticamente año (1850-2050) y lugar (país, ciudad o comunidad), devolviendo acción 'fly_to'.
+    3. Responde en lenguaje claro y cotidiano ('para mortales') en máximo 2 oraciones.
+    """
+    msg = (payload.message or "").strip()
+    off_topic_reply = {
+        "reply": "🌡️ Solo puedo responder preguntas sobre temperaturas, clima, calor futuro o buscar lugares en el mapa. Prueba preguntando: «¿Qué calor hará en Tulum en 2040?»",
+        "action": None,
+    }
+
+    if not msg or _OFF_TOPIC_PATTERNS.search(msg):
+        return off_topic_reply
+
+    # Extraer año solicitado (o conservar current_year)
+    year_match = re.search(r"\b(18[5-9]\d|19\d\d|20[0-9]\d)\b", msg)
+    anio = max(1850, min(2050, int(year_match.group(1)))) if year_match else int(payload.current_year or 2026)
+
+    # Extraer posible lugar geográfico
+    candidato_lugar = _extraer_candidato_lugar(msg, payload.current_city)
+    has_climate_kw = bool(_CLIMATE_DOMAIN_PATTERNS.search(msg))
+
+    if not has_climate_kw and not candidato_lugar:
+        return off_topic_reply
+
+    # Si se detectó un candidato de lugar, buscarlo en el catálogo Demo o vía Nominatim/SQLite
+    if candidato_lugar:
+        if not METADATA_CIUDADES:
+            inicializar_dataset_en_memoria()
+
+        cand_low = candidato_lugar.lower().strip()
+        demo_city = GLOBAL_CACHE.get("ciudades_lower", {}).get(cand_low)
+        found_place: Optional[Dict[str, Any]] = None
+        es_demo = False
+
+        if demo_city and demo_city in METADATA_CIUDADES:
+            meta = METADATA_CIUDADES[demo_city]
+            found_place = {
+                "name": demo_city,
+                "display_name": f"{demo_city}, {meta['country']}",
+                "lat": float(meta["lat"]),
+                "lon": float(meta["lon"]),
+                "type": "city",
+            }
+            es_demo = True
+        else:
+            # Búsqueda instantánea en GLOBAL_MAJOR_CITIES (< 0.1 ms) o en caché/Nominatim con timeout 3.0s
+            major_match = next(
+                (c for c in GLOBAL_MAJOR_CITIES if c["name"].lower() == cand_low),
+                None,
+            )
+            if major_match is not None:
+                found_place = {
+                    "name": major_match["name"],
+                    "display_name": major_match["name"],
+                    "lat": float(major_match["lat"]),
+                    "lon": float(major_match["lon"]),
+                    "type": "city",
+                }
+            else:
+                try:
+                    geo_results = await asyncio.wait_for(geocoding_service.search(candidato_lugar), timeout=3.0)
+                except Exception:
+                    geo_results = []
+                if geo_results:
+                    top = geo_results[0]
+                    found_place = {
+                        "name": str(top.get("name") or candidato_lugar),
+                        "display_name": str(top.get("display_name") or top.get("name") or candidato_lugar),
+                        "lat": float(top["lat"]),
+                        "lon": float(top["lon"]),
+                        "type": str(top.get("type") or "city").lower(),
+                    }
+                    if found_place["name"].lower() in GLOBAL_CACHE.get("ciudades_lower", {}):
+                        es_demo = True
+
+        if found_place:
+            lat = round(float(found_place["lat"]), 4)
+            lon = round(float(found_place["lon"]), 4)
+            nombre = found_place["name"]
+            display_name = found_place["display_name"]
+            p_type = found_place["type"]
+
+            base_lat = (
+                float(METADATA_CIUDADES[demo_city]["media_hist"])
+                if (es_demo and demo_city in METADATA_CIUDADES)
+                else max(-10.0, 28.5 - 0.45 * abs(lat))
+            )
+            co2_est = 425.0 + (anio - 2026) * 2.2 if anio >= 2026 else max(280.0, 425.0 - (2026 - anio) * 1.4)
+
+            async def _fetch_live_fast() -> Dict[str, Any]:
+                try:
+                    return await asyncio.wait_for(weather_service.obtener_clima_actual(lat, lon), timeout=3.0)
+                except Exception:
+                    return {}
+
+            live_w, pred, pred_today = await asyncio.gather(
+                _fetch_live_fast(),
+                asyncio.to_thread(inference_engine.predecir_coordenada_libre, lat, lon, anio, 7, co2_est, base_lat),
+                asyncio.to_thread(inference_engine.predecir_coordenada_libre, lat, lon, 2026, 7, 425.0, base_lat),
+            )
+
+            fallback_today = float(pred_today["temp_predicha"])
+            t_actual = float(
+                live_w.get("temperature_2m")
+                if (isinstance(live_w, dict) and live_w.get("temperature_2m") is not None)
+                else fallback_today
+            )
+            sensacion = float(
+                live_w.get("apparent_temperature")
+                if (isinstance(live_w, dict) and live_w.get("apparent_temperature") is not None)
+                else t_actual
+            )
+
+            t_proj = float(pred["temp_predicha"])
+            delta = float(pred["anomalia"])
+            signo = "+" if delta >= 0 else ""
+            riesgo_raw = str(pred["nivel_estres"]).upper()
+
+            if "CRÍT" in riesgo_raw or "CRIT" in riesgo_raw:
+                riesgo_simple = "riesgo alto de sobrecarga por uso masivo de aire acondicionado"
+            elif "MOD" in riesgo_raw:
+                riesgo_simple = "esfuerzo moderado para la red eléctrica local"
+            else:
+                riesgo_simple = "consumo eléctrico tranquilo y estable"
+
+            if p_type in ("country", "administrative", "state", "region"):
+                zoom = 5
+            elif p_type in ("city", "megacity"):
+                zoom = 10
+            elif p_type in ("town", "municipality", "suburb", "borough"):
+                zoom = 12
+            else:
+                zoom = 13
+
+            reply = (
+                f"📍 Te llevo a **{nombre}**. Ahora mismo está a **{t_actual:.1f} °C** (sensación de {sensacion:.1f} °C). "
+                f"Para **{anio}**, su promedio anual proyectado será de **{t_proj:.1f} °C** ({signo}{delta:.1f} °C frente a su media histórica), "
+                f"con un nivel de exigencia eléctrica **{riesgo_simple}**."
+            )
+            return {
+                "reply": reply,
+                "action": {
+                    "type": "fly_to",
+                    "name": nombre,
+                    "display_name": display_name,
+                    "lat": lat,
+                    "lon": lon,
+                    "zoom": zoom,
+                    "year": anio,
+                    "is_demo_city": es_demo,
+                },
+            }
+
+        if not has_climate_kw:
+            return off_topic_reply
+
+    # Respuestas simples "para mortales" sobre la ubicación actual (máx. 2 oraciones, sin tecnicismos)
+    msg_low = msg.lower()
+    ciudad_act = payload.current_city or "esta ubicación"
+    t_show = float(payload.current_temp if payload.current_temp is not None else 22.0)
+    if year_match and int(year_match.group(1)) != int(payload.current_year or 2026):
+        co2_y = 425.0 + (anio - 2026) * 2.2 if anio >= 2026 else max(280.0, 425.0 - (2026 - anio) * 1.4)
+        base_y = max(-10.0, 28.5 - 0.45 * abs(float(payload.current_lat or 20.0)))
+        pred_y = await asyncio.to_thread(
+            inference_engine.predecir_coordenada_libre,
+            float(payload.current_lat or 20.0),
+            float(payload.current_lon or 0.0),
+            anio,
+            7,
+            co2_y,
+            base_y,
+        )
+        t_show = float(pred_y["temp_predicha"])
+
+    if any(k in msg_low for k in ("gráfica", "grafica", "curva", "línea", "linea", "punteada", "sombra", "significa")):
+        reply_local = (
+            f"📈 En **{ciudad_act}**, la línea continua muestra las temperaturas reales del pasado y la línea punteada "
+            f"indica el calor que se espera a futuro si sigue la tendencia actual. Para **{anio}** ronda los **{t_show:.1f} °C**, "
+            f"y la franja sombreada es el margen normal donde puede oscilar el termómetro."
+        )
+    elif any(k in msg_low for k in ("barra", "roja", "cdd", "aire acondicionado", "enfriamiento", "refrigeración", "refrigeracion")):
+        esfuerzo_txt = (
+            "los aires acondicionados trabajarán a máxima potencia casi todo el día"
+            if t_show >= 28.0
+            else ("se necesitará encender ventiladores y aire acondicionado en las tardes" if t_show >= 21.0 else "casi no hace falta usar aire acondicionado")
+        )
+        reply_local = (
+            f"❄️ Las barras rojas miden cuánto esfuerzo extra necesitan los aires acondicionados cada vez que el calor pasa de 18 °C. "
+            f"En **{ciudad_act}** ({anio}), con **{t_show:.1f} °C**, {esfuerzo_txt}."
+        )
+    else:
+        riesgo_up = (payload.current_risk or "").upper()
+        if t_show >= 29.0 or "CRÍT" in riesgo_up or "ALTO" in riesgo_up:
+            impacto_txt = "Es un calor fuerte que provocará alta demanda eléctrica porque muchos hogares encenderán el aire acondicionado al mismo tiempo."
+        elif t_show >= 22.5 or "MOD" in riesgo_up or "ALERTA" in riesgo_up:
+            impacto_txt = "Es un ambiente cálido moderado donde la red eléctrica trabaja con carga media y sin peligro inmediato de apagones."
+        else:
+            impacto_txt = "Es un clima templado o fresco donde el consumo eléctrico por calor se mantiene bajo y sin estrés para la red."
+        reply_local = f"🌡️ En **{ciudad_act}** para el año **{anio}**, la temperatura esperada es de **{t_show:.1f} °C**. {impacto_txt}"
+
+    return {
+        "reply": reply_local,
+        "action": None,
+    }
+
+
 if __name__ == "__main__":
     import uvicorn
 
+    os.environ["OPEN_BROWSER_ON_START"] = "1"
     uvicorn.run(
         "main:app",
         host=os.getenv("APP_HOST", "127.0.0.1"),

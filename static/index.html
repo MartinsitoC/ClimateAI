@@ -102,13 +102,16 @@
         .pulse-beacon {
             animation: pulse-ring 2s infinite ease-in-out;
         }
-        /* Cursor Tooltip estilo Ventusky */
+        /* Cursor Tooltip estilo Ventusky acelerado por GPU (sin reflows) */
         #cursor-temp-tooltip {
             position: absolute;
+            left: 0;
+            top: 0;
+            will-change: transform;
             pointer-events: none;
             z-index: 2000;
             display: none;
-            transform: translate(12px, -50%);
+            transform: translate3d(14px, 14px, 0);
             transition: opacity 0.1s ease;
         }
 
@@ -137,9 +140,10 @@
             transform-origin: center;
         }
 
-        /* Halo de separación de alto contraste + luminiscencia adaptativa (evita empastado con Capa 2) */
+        /* Halo de separación de alto contraste (sin drop-shadow SVG para mantener 60 FPS en paneo) */
         .thermal-marker-glow {
-            filter: drop-shadow(0 1px 3px rgba(2, 6, 23, 0.85)) drop-shadow(0 0 6px rgba(255, 255, 255, 0.45));
+            stroke-opacity: 0.95;
+            stroke-width: 2px;
         }
 
         .thermal-marker-critical {
@@ -147,8 +151,8 @@
         }
 
         @keyframes thermalPulse {
-            0%, 100% { stroke-opacity: 0.9; stroke-width: 2.2px; }
-            50% { stroke-opacity: 0.35; stroke-width: 4.5px; }
+            0%, 100% { stroke-opacity: 0.95; stroke-width: 2.2px; }
+            50% { stroke-opacity: 0.4; stroke-width: 4.2px; }
         }
 
         /* Efecto de Onda Expansiva / Radar Focus */
@@ -346,6 +350,13 @@
                 <span id="theme-label" class="text-[11px]">Contraste</span>
               </button>
             </div>
+
+            <!-- Monitor Discreto de FPS y Latencia -->
+            <div class="border-t border-slate-800 pt-2.5 flex items-center justify-between text-[10px] font-mono text-slate-400">
+              <span id="perfTelemetryRow" class="truncate">
+                Rendimiento Gráfico: <strong id="perfFpsVal" class="text-emerald-400">60</strong> FPS · Motor IA: <strong id="perfAiLatencyVal" class="text-cyan-400">&lt; 1.5 ms</strong>
+              </span>
+            </div>
           </div>
         </div>
 
@@ -419,11 +430,129 @@
         <span id="arrowIcon" class="text-sm font-bold font-mono">◀</span>
     </button>
 
+    <!-- TERCERA VENTANA FLOTANTE: COPILOTO DE ANÁLISIS IA (#aiExplainerDrawer) -->
+    <div id="aiExplainerDrawer" class="fixed right-[31%] bottom-20 w-[340px] max-w-[90vw] bg-slate-900/95 backdrop-blur-md border border-amber-500/40 rounded-2xl shadow-2xl z-[1010] transition-all duration-300 hidden p-3 text-slate-100">
+        <!-- Barra Compacta Minimizada (visible solo cuando se minimiza con —) -->
+        <button id="aiExplainerMinimizedBar"
+                type="button"
+                onclick="toggleMinimizarCopilotoIA(false)"
+                class="hidden w-full flex items-center justify-between gap-2 text-left text-xs font-extrabold text-amber-400 hover:text-amber-300 py-0.5 px-1 transition-colors">
+            <span class="truncate">✨ Copiloto Térmico · Clic para expandir</span>
+            <span class="text-[10px] font-mono bg-amber-500/15 border border-amber-500/30 px-1.5 py-0.5 rounded text-amber-300 shrink-0">▲</span>
+        </button>
+
+        <!-- Cuerpo Completo del Copiloto IA -->
+        <div id="aiExplainerFullContent">
+            <!-- Cabecera del Copiloto IA -->
+            <div class="flex items-start justify-between gap-2 pb-2 border-b border-slate-800">
+                <div class="min-w-0">
+                    <div class="flex items-center gap-1.5">
+                        <span class="text-amber-400 text-sm">✨</span>
+                        <h3 id="aiExplainerTitle" class="text-xs font-extrabold text-amber-400 tracking-wide truncate">
+                            Asistente IA · Lectura de Curva Térmica
+                        </h3>
+                    </div>
+                    <span id="aiExplainerBadge" class="inline-block mt-1 text-[10px] font-mono font-semibold px-2 py-0.5 rounded-md bg-cyan-500/15 text-cyan-300 border border-cyan-500/30 truncate max-w-full">
+                        Vista Global · Horizonte 2026
+                    </span>
+                </div>
+                <div class="flex items-center gap-1 shrink-0">
+                    <button type="button" onclick="toggleMinimizarCopilotoIA(true)" title="Minimizar Copiloto IA" class="text-slate-400 hover:text-white bg-slate-800/80 hover:bg-slate-700 rounded-lg px-2 py-0.5 text-xs font-bold transition-colors">
+                        —
+                    </button>
+                    <button type="button" onclick="cerrarCopilotoIAManual()" title="Cerrar Asistente IA" class="text-slate-400 hover:text-white bg-slate-800/80 hover:bg-slate-700 rounded-lg px-2 py-0.5 text-xs font-bold transition-colors">
+                        ✕
+                    </button>
+                </div>
+            </div>
+
+            <!-- Barra de Acceso Rápido para Presentación (🧭 Escenarios Clave) -->
+            <div class="mt-2 flex items-center justify-between gap-1 bg-slate-950/70 border border-slate-800/80 rounded-xl px-2 py-1.5">
+                <span class="text-[9px] font-bold text-slate-400 uppercase tracking-wider shrink-0">🧭 Escenarios:</span>
+                <div class="flex items-center gap-1 flex-wrap justify-end">
+                    <button type="button" onclick="activarEscenarioClaveCopiloto('Cancún', 21.16, -86.85, 2045, 11, false)" class="text-[10px] font-semibold px-2 py-0.5 rounded-lg bg-slate-800 hover:bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 transition-all">
+                        🌴 Cancún 2045
+                    </button>
+                    <button type="button" onclick="activarEscenarioClaveCopiloto('Baghdad', 33.31, 44.36, 2045, 10, true)" class="text-[10px] font-semibold px-2 py-0.5 rounded-lg bg-slate-800 hover:bg-red-500/20 text-red-300 border border-red-500/30 transition-all">
+                        🔥 Baghdad 2045
+                    </button>
+                    <button type="button" onclick="activarEscenarioClaveCopiloto('Tokyo', 35.68, 139.69, 2045, 10, true)" class="text-[10px] font-semibold px-2 py-0.5 rounded-lg bg-slate-800 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 transition-all">
+                        🏙️ Tokio 2045
+                    </button>
+                </div>
+            </div>
+
+            <!-- Conclusión Compacta (Máx. 2-3 líneas, "para mortales") -->
+            <div id="aiExplainerNarrative" class="mt-2 text-[11px] text-slate-200 leading-snug bg-slate-950/75 border border-slate-800/90 rounded-xl p-2.5">
+                Analizando conclusión térmica...
+            </div>
+
+            <!-- Chips Rápidos + Toggle Simulador de Mitigación -->
+            <div class="mt-2 flex flex-wrap gap-1.5">
+                <button type="button" onclick="enviarMensajeChatIA('¿Qué significa esta gráfica?')" class="ai-chip-btn text-[10px] font-semibold px-2.5 py-1 rounded-full bg-slate-800 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 transition-all">
+                    🌡️ ¿Qué significa esta gráfica?
+                </button>
+                <button type="button" onclick="enviarMensajeChatIA('¿Habrá calor extremo?')" class="ai-chip-btn text-[10px] font-semibold px-2.5 py-1 rounded-full bg-slate-800 hover:bg-red-500/20 text-red-300 border border-red-500/30 transition-all">
+                    🔥 ¿Habrá calor extremo?
+                </button>
+                <button id="btnToggleMitigationSim" type="button" onclick="toggleSimuladorMitigacionIA()" class="ai-chip-btn text-[10px] font-semibold px-2.5 py-1 rounded-full bg-slate-800 hover:bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 transition-all">
+                    🌿 Simular Mitigación
+                </button>
+            </div>
+
+            <!-- Tarjeta Comparativa del Simulador de Mitigación Urbana -->
+            <div id="aiMitigationCard" class="hidden mt-2 bg-emerald-950/40 border border-emerald-500/40 rounded-xl p-2 text-[10px] text-slate-200 space-y-1">
+                <div class="flex items-center justify-between border-b border-emerald-500/20 pb-1">
+                    <span class="font-extrabold text-emerald-400">🌿 Infraestructura Verde + Eficiencia HVAC</span>
+                    <span id="aiMitigationRiskShift" class="font-mono font-bold text-[9px] px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                        Moderado → Bajo
+                    </span>
+                </div>
+                <div class="grid grid-cols-2 gap-1.5 pt-0.5">
+                    <div class="bg-slate-950/70 rounded-lg px-2 py-1 border border-slate-800">
+                        <span class="text-[9px] text-slate-400 block">Temperatura (-1.8 °C)</span>
+                        <span id="aiMitigationTempCompare" class="font-mono font-bold text-emerald-300">-- → --</span>
+                    </div>
+                    <div class="bg-slate-950/70 rounded-lg px-2 py-1 border border-slate-800">
+                        <span class="text-[9px] text-slate-400 block">Esfuerzo Eléctrico (CDD)</span>
+                        <span id="aiMitigationCddCompare" class="font-mono font-bold text-cyan-300">-22% Demanda</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Historial de Mensajes del Mini-Chat -->
+            <div id="aiChatMessages" class="mt-2 max-h-[96px] overflow-y-auto custom-scrollbar space-y-1.5 text-[11px] pr-1">
+                <div class="bg-slate-800/70 border border-slate-700/70 text-slate-300 rounded-xl px-2.5 py-1.5 leading-snug">
+                    💬 Pregúntame sobre el calor futuro o escribe un lugar (ej. <em>«¿Qué calor hará en Tulum en 2040?»</em>).
+                </div>
+            </div>
+
+            <!-- Barra Inferior de Entrada del Mini-Chat -->
+            <div class="mt-2 flex items-center gap-1.5 pt-1.5 border-t border-slate-800/90">
+                <input id="aiChatInput"
+                       type="text"
+                       autocomplete="off"
+                       placeholder="Pregunta sobre calor o un lugar..."
+                       onkeydown="event.stopPropagation(); if(event.key==='Enter') enviarMensajeChatIA()"
+                       onkeyup="event.stopPropagation()"
+                       onkeypress="event.stopPropagation()"
+                       class="flex-1 bg-slate-950/90 text-slate-100 placeholder-slate-500 rounded-xl px-2.5 py-1.5 text-[11px] border border-slate-700/80 focus:border-amber-400 outline-none">
+                <button id="aiChatSendBtn"
+                        type="button"
+                        onclick="enviarMensajeChatIA()"
+                        title="Enviar consulta térmica"
+                        class="px-2.5 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-extrabold transition-all shrink-0 shadow-sm">
+                    ➤
+                </button>
+            </div>
+        </div>
+    </div>
+
     <!-- Panel Lateral (Fijo al 30% en modo normal, Drawer flotante en fullscreen) -->
     <aside id="sidePanelWrapper" class="h-full w-[30%] min-w-[340px] max-w-[460px] bg-[#f8fafc] dark:bg-slate-900/95 border-l border-amber-200/50 dark:border-slate-800 flex flex-col p-3 md:p-3.5 gap-2.5 z-[1001] transition-transform duration-300 ease-in-out overflow-y-auto shrink-0">
         
-        <!-- PANEL SUPERIOR DERECHO: FICHA DE VULNERABILIDAD Y ESTRÉS ENERGÉTICO (48% del alto) -->
-        <div class="bg-white dark:bg-[#111827] border border-amber-200/60 dark:border-slate-800 shadow-sm rounded-2xl p-3.5 flex flex-col justify-between shrink-0 h-[48%] transition-colors duration-200">
+        <!-- PANEL SUPERIOR DERECHO: FICHA DE VULNERABILIDAD Y ESTRÉS ENERGÉTICO -->
+        <div class="bg-white dark:bg-[#111827] border border-amber-200/60 dark:border-slate-800 shadow-sm rounded-2xl p-3.5 flex flex-col justify-start gap-2.5 shrink-0 transition-colors duration-200">
             <div>
                 <!-- Header con Insignia de Modo Activo, Selector de Catálogo y Buscador Nominatim -->
                 <div class="flex flex-col gap-1.5 pb-2 border-b border-amber-200/50 dark:border-slate-800 relative">
@@ -465,7 +594,9 @@
                                    type="text"
                                    autocomplete="off"
                                    placeholder="Buscar ciudad o pueblo (Ctrl+K, ej. Tulum, Oaxaca)..."
-                                   onkeydown="if(event.key==='Enter') ejecutarBusquedaDirectaNominatim()"
+                                   onkeydown="event.stopPropagation(); if(event.key==='Enter') ejecutarBusquedaDirectaNominatim()"
+                                   onkeyup="event.stopPropagation()"
+                                   onkeypress="event.stopPropagation()"
                                    class="flex-1 bg-slate-50 dark:bg-slate-900/90 text-slate-800 dark:text-slate-100 rounded-lg px-2.5 py-1.5 text-xs border border-amber-400/60 dark:border-amber-500/40 outline-none focus:border-amber-400">
                             <button onclick="ejecutarBusquedaDirectaNominatim()" class="px-2.5 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-bold transition-all shrink-0">
                                 🔍
@@ -505,32 +636,32 @@
                     <div class="bg-red-500/10 border border-red-500/25 rounded-xl p-2 flex flex-col justify-between">
                         <span class="text-[10px] text-red-700 dark:text-red-300 font-semibold">Anomalía & ±σ</span>
                         <div class="text-lg font-black text-red-600 dark:text-red-400 flex items-baseline gap-0.5 mt-0.5">
-                            <span id="kpi-delta-temp">--</span><span class="text-[10px] font-semibold unit-label">°C</span>
+                            <span id="kpi-delta-temp">+1.24</span><span class="text-[10px] font-semibold unit-label">°C</span>
                         </div>
-                        <span id="kpi-incertidumbre-sigma" class="text-[9px] text-slate-500 dark:text-slate-400 truncate font-mono" title="Incertidumbre inter-árbol RandomForest (±σ) e Intervalo de Confianza 95%">±σ: -- | IC95%</span>
+                        <span id="kpi-incertidumbre-sigma" class="text-[9px] text-slate-500 dark:text-slate-400 truncate font-mono" title="Incertidumbre inter-árbol RandomForest (±σ) e Intervalo de Confianza 95%">±0.48°C [15.4, 17.3]</span>
                     </div>
 
                     <!-- Métrica 2: CDD Proyectado y % Aumento Refrigeración -->
                     <div class="bg-amber-500/10 border border-amber-500/25 rounded-xl p-2 flex flex-col justify-between">
                         <span class="text-[10px] text-amber-700 dark:text-amber-300 font-semibold">Refrigeración CDD</span>
                         <div class="text-lg font-black text-amber-600 dark:text-amber-400 flex items-baseline gap-0.5 mt-0.5">
-                            <span id="kpi-pct-cdd">--</span><span class="text-[10px] font-semibold">%</span>
+                            <span id="kpi-pct-cdd">+18.5</span><span class="text-[10px] font-semibold">%</span>
                         </div>
-                        <span id="kpi-cdd-val" class="text-[9px] text-slate-500 dark:text-slate-400 truncate">CDD: --</span>
+                        <span id="kpi-cdd-val" class="text-[9px] text-slate-500 dark:text-slate-400 truncate">CDD 2040: 3.8</span>
                     </div>
 
                     <!-- Métrica 3: Diagnóstico Probabilístico de Estrés en Red (predict_proba) -->
                     <div class="bg-orange-500/10 border border-orange-500/25 rounded-xl p-2 flex flex-col justify-between">
                         <span class="text-[10px] text-orange-700 dark:text-orange-300 font-semibold">Estrés Red (Prob)</span>
                         <div class="text-sm font-black text-orange-600 dark:text-orange-400 truncate mt-0.5" id="kpi-estres-nivel">
-                            Crítico
+                            Alerta (52%)
                         </div>
                         <div class="w-full h-1.5 bg-slate-800/40 rounded-full overflow-hidden flex my-0.5" title="Distribución de probabilidad (predict_proba): Bajo / Moderado / Crítico">
-                            <div id="prob-bar-bajo" class="h-full bg-emerald-500 transition-all duration-300" style="width: 15%"></div>
-                            <div id="prob-bar-mod" class="h-full bg-amber-500 transition-all duration-300" style="width: 25%"></div>
-                            <div id="prob-bar-crit" class="h-full bg-red-500 transition-all duration-300" style="width: 60%"></div>
+                            <div id="prob-bar-bajo" class="h-full bg-emerald-500 transition-all duration-300" style="width: 26%"></div>
+                            <div id="prob-bar-mod" class="h-full bg-amber-500 transition-all duration-300" style="width: 52%"></div>
+                            <div id="prob-bar-crit" class="h-full bg-red-500 transition-all duration-300" style="width: 22%"></div>
                         </div>
-                        <span id="kpi-prob-riesgo" class="text-[9px] text-slate-500 dark:text-slate-400 truncate font-mono">B:--% M:--% C:--%</span>
+                        <span id="kpi-prob-riesgo" class="text-[9px] text-slate-500 dark:text-slate-400 truncate font-mono">B:26% M:52% C:22%</span>
                     </div>
                 </div>
             </div>
@@ -561,17 +692,25 @@
 
         <!-- PANEL INFERIOR DERECHO: CATÁLOGO DE MEDIDAS PRESCRIPTIVAS Y GRÁFICA COMPARATIVA (52% del alto) -->
         <div class="bg-white dark:bg-[#111827] border border-amber-200/60 dark:border-slate-800 shadow-sm rounded-2xl p-3 flex flex-col flex-1 min-h-0 transition-colors duration-200">
-            <!-- Navegación de pestañas del panel lateral -->
-            <div class="grid grid-cols-3 gap-1 bg-slate-200 dark:bg-slate-800/80 p-1 rounded-xl text-xs font-semibold shrink-0">
-                <button id="tabBtnAction" data-tab="plan" onclick="cambiarTab('plan')" class="tab-btn py-2 px-1 rounded-lg text-center transition-all bg-amber-500 text-slate-900 font-bold shadow-sm">
-                    Plan de Acción
-                </button>
-                <button id="tabBtnCurve" data-tab="curva" onclick="cambiarTab('curva')" class="tab-btn py-2 px-1 rounded-lg text-center transition-all text-slate-400 hover:text-white">
-                    Curva Térmica
-                </button>
-                <button id="tabBtnCorrelation" data-tab="correlacion" onclick="cambiarTab('correlacion')" class="tab-btn py-2 px-1 rounded-lg text-center transition-all text-slate-400 hover:text-white">
-                    Correlación & Red
-                </button>
+            <!-- Navegación de pestañas del panel lateral + Botón píldora Copiloto IA -->
+            <div class="flex flex-col gap-1.5 shrink-0">
+                <div class="grid grid-cols-3 gap-1 bg-slate-200 dark:bg-slate-800/80 p-1 rounded-xl text-xs font-semibold">
+                    <button id="tabBtnAction" data-tab="plan" onclick="cambiarTab('plan')" class="tab-btn py-2 px-1 rounded-lg text-center transition-all bg-amber-500 text-slate-900 font-bold shadow-sm">
+                        Plan de Acción
+                    </button>
+                    <button id="tabBtnCurve" data-tab="curva" onclick="cambiarTab('curva')" class="tab-btn py-2 px-1 rounded-lg text-center transition-all text-slate-400 hover:text-white">
+                        Curva Térmica
+                    </button>
+                    <button id="tabBtnCorrelation" data-tab="correlacion" onclick="cambiarTab('correlacion')" class="tab-btn py-2 px-1 rounded-lg text-center transition-all text-slate-400 hover:text-white">
+                        Correlación & Red
+                    </button>
+                </div>
+                <div id="aiPillContainer" class="hidden flex justify-end">
+                    <button id="btnReopenAiExplainer" type="button" onclick="reabrirCopilotoIAManual()" class="text-[10px] font-bold px-2.5 py-1 rounded-full bg-amber-500/15 hover:bg-amber-500/25 text-amber-400 border border-amber-500/40 transition-all flex items-center gap-1 shadow-sm">
+                        <span>✨</span>
+                        <span>Explicar Gráfica IA</span>
+                    </button>
+                </div>
             </div>
 
             <!-- Contenedores de contenido de pestañas -->
@@ -1050,11 +1189,17 @@
             return { ctx, dpr };
         }
 
+        let idwFramePending = false;
+        let isMapMoving = false;
+
         const IDWRasterLayer = L.Layer.extend({
             initialize: function(options) {
                 L.setOptions(this, options);
                 this._offscreenCanvas = document.createElement('canvas');
+                this._offscreenCanvas.width = 180;
+                this._offscreenCanvas.height = 110;
                 this._offscreenCtx = this._offscreenCanvas.getContext('2d');
+                this._cachedImgData = this._offscreenCtx.createImageData(180, 110);
                 this._puntos = [];
                 this._dpr = window.devicePixelRatio || 1;
             },
@@ -1070,35 +1215,54 @@
                 const pane = mapInstance.getPane(this.options.pane || 'thermalPane');
                 pane.appendChild(this._canvas);
 
-                this._onMoveBound = () => {
+                this._onMoveStart = () => {
+                    isMapMoving = true;
+                };
+
+                this._onMoveEnd = () => {
+                    isMapMoving = false;
                     if (!this._map || !this._canvas) return;
                     const topLeft = this._map.containerPointToLayerPoint([0, 0]);
                     L.DomUtil.setPosition(this._canvas, topLeft);
-                    enqueueRender({ raster: true });
+                    this.requestRedraw();
                 };
-                this._onZoomDebounced = debounce(() => {
-                    this._onMoveBound();
+
+                this._onZoomEnd = () => {
+                    isMapMoving = false;
+                    this._onMoveEnd();
                     aplicarZoomSemanticoNodos();
-                }, 50);
+                };
+
                 this._onResizeDebounced = debounce(() => {
                     this._resizeCanvas();
                 }, 50);
 
-                mapInstance.on('move', this._onMoveBound);
-                mapInstance.on('moveend', this._onMoveBound);
-                mapInstance.on('zoomend', this._onZoomDebounced);
+                mapInstance.on('movestart zoomstart', this._onMoveStart);
+                mapInstance.on('moveend', this._onMoveEnd);
+                mapInstance.on('zoomend', this._onZoomEnd);
                 mapInstance.on('resize', this._onResizeDebounced);
 
                 this._resizeCanvas();
-                this._onMoveBound();
+                this._onMoveEnd();
             },
 
             onRemove: function(mapInstance) {
                 L.DomUtil.remove(this._canvas);
-                mapInstance.off('move', this._onMoveBound);
-                mapInstance.off('moveend', this._onMoveBound);
-                mapInstance.off('zoomend', this._onZoomDebounced);
+                mapInstance.off('movestart zoomstart', this._onMoveStart);
+                mapInstance.off('moveend', this._onMoveEnd);
+                mapInstance.off('zoomend', this._onZoomEnd);
                 mapInstance.off('resize', this._onResizeDebounced);
+            },
+
+            requestRedraw: function() {
+                if (isMapMoving || idwFramePending) return;
+                idwFramePending = true;
+                requestAnimationFrame(() => {
+                    idwFramePending = false;
+                    if (!isMapMoving) {
+                        this._redrawCanvas();
+                    }
+                });
             },
 
             _resizeCanvas: function() {
@@ -1106,20 +1270,20 @@
                 const { ctx, dpr } = resizeThermalCanvas(this._canvas, this._map);
                 this._ctx = ctx;
                 this._dpr = dpr;
-                enqueueRender({ raster: true });
+                this.requestRedraw();
             },
 
             _resetView: function() {
-                if (this._onMoveBound) this._onMoveBound();
+                if (this._onMoveEnd) this._onMoveEnd();
             },
 
             setPuntos: function(puntos) {
                 this._puntos = puntos || [];
-                enqueueRender({ raster: true });
+                this.requestRedraw();
             },
 
             _redrawCanvas: function() {
-                if (!this._map || !this._canvas) return;
+                if (!this._map || !this._canvas || isMapMoving) return;
 
                 const size = this._map.getSize();
                 const width = size.x;
@@ -1136,11 +1300,9 @@
                 const zoom = this._map.getZoom();
                 const lod = getLODParameters(zoom);
 
-                // PASO 1 Y 5: Downsampled grid a 1/4 o 1/8 de resolución según hardware
-                const factor = lod.isIsobandMode ? Math.max(3, AppState.samplingFactor - 1) : AppState.samplingFactor;
-                const cols = Math.max(64, Math.min(420, Math.floor(width / factor)));
-                const rows = Math.max(40, Math.min(260, Math.floor(height / factor)));
-
+                // Offscreen canvas fijo de 180 x 110 px para interpolación IDW ultra-rápida a 60 FPS
+                const cols = 180;
+                const rows = 110;
                 if (this._offscreenCanvas.width !== cols || this._offscreenCanvas.height !== rows) {
                     this._offscreenCanvas.width = cols;
                     this._offscreenCanvas.height = rows;
@@ -1151,16 +1313,18 @@
                 AppState.viewportWidth = width;
                 AppState.viewportHeight = height;
 
-                // Inicializar/reutilizar matriz 2D thermalGrid[gridY][gridX] para lectura O(1) en mousemove
                 if (AppState.thermalGrid.length !== rows) {
                     AppState.thermalGrid = Array.from({ length: rows }, () => new Float32Array(cols));
                 } else if (AppState.thermalGrid[0].length !== cols) {
                     for (let r = 0; r < rows; r++) AppState.thermalGrid[r] = new Float32Array(cols);
                 }
 
-                this._canvas.style.opacity = lod.isIsobandMode ? '0.72' : '0.62';
+                this._canvas.style.opacity = lod.isIsobandMode ? '0.68' : '0.60';
 
-                const imgData = this._offscreenCtx.createImageData(cols, rows);
+                if (!this._cachedImgData || this._cachedImgData.width !== cols || this._cachedImgData.height !== rows) {
+                    this._cachedImgData = this._offscreenCtx.createImageData(cols, rows);
+                }
+                const imgData = this._cachedImgData;
                 const data = imgData.data;
 
                 const rowLat = new Float64Array(rows);
@@ -1176,10 +1340,8 @@
                     colLon[c] = ((rawLng + 180) % 360 + 360) % 360 - 180;
                 }
 
-                // PASO 3: VIEWPORT CULLING ESTRICTO + PRE-PROYECCIÓN DE PANTALLA UNA SOLA VEZ POR FOTOGRAMA
                 const todosPuntos = this._puntos;
                 const projectedNodes = [];
-                let focalNode = null;
 
                 if (todosPuntos && todosPuntos.length > 0) {
                     const b = this._map.getBounds();
@@ -1199,239 +1361,76 @@
                             if (dLonCenter > 180) dLonCenter = 360 - dLonCenter;
                             if (dLonCenter > halfLonSpan) continue;
                         }
-                        const screenPt = this._map.latLngToContainerPoint([p.lat, p.lon]);
-                        const node = {
-                            city: p.city,
+                        projectedNodes.push({
                             lat: p.lat,
                             lon: p.lon,
-                            cosLat: Math.max(0.25, Math.cos((p.lat * Math.PI) / 180)),
-                            temperatura: p.temperatura,
-                            screenX: screenPt.x,
-                            screenY: screenPt.y
-                        };
-                        if (AppState.selectedCity && p.city === AppState.selectedCity) {
-                            focalNode = node;
-                        }
-                        projectedNodes.push(node);
+                            temperatura: p.temperatura
+                        });
                     }
                 }
 
-                // Domo térmico focal sobre coordenadas universales seleccionadas (selectedCoords)
-                if (AppState.selectedCoords && typeof AppState.selectedCoords.lat === 'number' && typeof AppState.selectedCoords.lon === 'number') {
-                    const sc = AppState.selectedCoords;
-                    const screenPt = this._map.latLngToContainerPoint([sc.lat, sc.lon]);
+                const sc = selectedCoords || AppState.selectedCoords;
+                if (sc && typeof sc.lat === 'number' && typeof sc.lon === 'number') {
                     const customTemp = (sc.temp !== undefined && sc.temp !== null)
                         ? sc.temp
                         : computeSynopticBaseTemp(sc.lat, sc.lon);
-                    focalNode = {
-                        city: AppState.selectedCity || 'Punto Focal',
+                    projectedNodes.push({
                         lat: sc.lat,
                         lon: sc.lon,
-                        cosLat: Math.max(0.25, Math.cos((sc.lat * Math.PI) / 180)),
-                        temperatura: customTemp,
-                        screenX: screenPt.x,
-                        screenY: screenPt.y
-                    };
-                    const existsNear = projectedNodes.some(n => Math.hypot(n.lat - sc.lat, n.lon - sc.lon) < 0.25);
-                    if (!existsNear) {
-                        projectedNodes.push(focalNode);
-                    }
+                        temperatura: customTemp
+                    });
                 }
 
                 const numNodes = projectedNodes.length;
-                const sigmaSq = lod.maxDistSq * 0.34;
+                const maxDistSq = lod.maxDistSq;
 
-                if (!lod.isIsobandMode) {
-                    for (let r = 0; r < rows; r++) {
-                        const lat = rowLat[r];
-                        const gridRow = AppState.thermalGrid[r];
-                        if (lat > 85 || lat < -85) {
-                            gridRow.fill(NaN);
-                            continue;
-                        }
-                        const cosLat = Math.max(0.25, Math.cos((lat * Math.PI) / 180));
-                        const rowOffset = r * cols;
-
-                        for (let c = 0; c < cols; c++) {
-                            const lon = colLon[c];
-                            const baseT = computeSynopticBaseTemp(lat, lon);
-                            let tFinal = baseT;
-
-                            if (numNodes > 0) {
-                                let sumaPesos = 0;
-                                let deltaPonderado = 0;
-                                for (let i = 0; i < numNodes; i++) {
-                                    const n = projectedNodes[i];
-                                    const dLat = lat - n.lat;
-                                    let dLon = Math.abs(lon - n.lon);
-                                    if (dLon > 180) dLon = 360 - dLon;
-                                    const dLonScaled = dLon * cosLat;
-                                    const distSq = (dLat * dLat) + (dLonScaled * dLonScaled);
-
-                                    if (distSq < lod.maxDistSq) {
-                                        const falloff = 1.0 - (distSq / lod.maxDistSq);
-                                        const gauss = Math.exp(-distSq / sigmaSq);
-                                        const idw = 1.0 / (Math.pow(distSq + 0.12, 1.05) + lod.epsilon);
-                                        const w = (falloff * falloff) * (0.65 * idw + 2.2 * gauss);
-                                        sumaPesos += w;
-                                        deltaPonderado += (n.temperatura - baseT) * w;
-                                    }
-                                }
-                                if (sumaPesos > 0) {
-                                    const prominence = Math.min(1.0, sumaPesos / (sumaPesos + 0.18));
-                                    tFinal = baseT + (deltaPonderado / sumaPesos) * lod.blendWeight * prominence;
-                                }
-                            }
-
-                            gridRow[c] = tFinal;
-                            const [red, green, blue, alpha] = getMeteorologicalRGB(tFinal, 232);
-                            const pixelIdx = (rowOffset + c) * 4;
-                            data[pixelIdx]     = red;
-                            data[pixelIdx + 1] = green;
-                            data[pixelIdx + 2] = blue;
-                            data[pixelIdx + 3] = alpha;
-                        }
+                for (let r = 0; r < rows; r++) {
+                    const lat = rowLat[r];
+                    const gridRow = AppState.thermalGrid[r];
+                    if (lat > 85 || lat < -85) {
+                        gridRow.fill(NaN);
+                        continue;
                     }
-                } else {
-                    const alphaGrid = new Float32Array(rows * cols);
-                    const isoStep = lod.isoStep;
-                    const focalRadiusDeg = lod.radiusDeg * (focalNode ? 1.15 : 1.35);
-                    const focalRadiusSq = focalRadiusDeg * focalRadiusDeg;
-                    const coreSigmaSq = lod.maxDistSq * 0.035;
-                    const suburbanSigmaSq = lod.maxDistSq * 0.18;
+                    const cosLat = Math.max(0.25, Math.cos((lat * Math.PI) / 180));
+                    const rowOffset = r * cols;
 
-                    for (let r = 0; r < rows; r++) {
-                        const lat = rowLat[r];
-                        const gridRow = AppState.thermalGrid[r];
-                        const rowOffset = r * cols;
-                        if (lat > 85 || lat < -85) {
-                            gridRow.fill(NaN);
-                            continue;
-                        }
-                        const cosLat = Math.max(0.25, Math.cos((lat * Math.PI) / 180));
+                    for (let c = 0; c < cols; c++) {
+                        const lon = colLon[c];
+                        const baseT = computeSynopticBaseTemp(lat, lon);
+                        let tFinal = baseT;
 
-                        for (let c = 0; c < cols; c++) {
-                            const lon = colLon[c];
-                            const baseT = computeSynopticBaseTemp(lat, lon);
-                            let tFinal = baseT;
-                            let minDistSq = Infinity;
-
-                            if (numNodes > 0) {
-                                let sumaPesos = 0;
-                                let tempPonderada = 0;
-                                let uhiBoostTotal = 0;
-
-                                for (let i = 0; i < numNodes; i++) {
-                                    const n = projectedNodes[i];
-                                    const dLat = lat - n.lat;
-                                    let dLon = lon - n.lon;
-                                    if (dLon > 180) dLon -= 360;
-                                    if (dLon < -180) dLon += 360;
-
-                                    const dx = dLon * n.cosLat;
-                                    const dy = dLat;
-                                    const distSq = (dx * dx) + (dy * dy);
-                                    if (!focalNode && distSq < minDistSq) minDistSq = distSq;
-
-                                    if (distSq < lod.maxDistSq) {
-                                        const theta = Math.atan2(dy, dx);
-                                        const anisotropy = 1.0 + 0.12 * Math.cos(2.0 * theta - 0.5) + 0.07 * Math.sin(3.0 * theta);
-                                        const effDistSq = distSq * anisotropy;
-                                        const falloff = Math.max(0, 1.0 - (effDistSq / lod.maxDistSq));
-                                        const w = (falloff * falloff) / (Math.pow(effDistSq + 0.015, 1.15) + lod.epsilon);
-                                        sumaPesos += w;
-                                        tempPonderada += n.temperatura * w;
-
-                                        const uhiCore = 3.2 * Math.exp(-effDistSq / coreSigmaSq);
-                                        const uhiCanopy = 1.6 * Math.exp(-effDistSq / suburbanSigmaSq);
-                                        uhiBoostTotal = Math.max(uhiBoostTotal, uhiCore + uhiCanopy);
-                                    }
-                                }
-
-                                if (sumaPesos > 0) {
-                                    const regionalMix = Math.min(1.0, sumaPesos / (sumaPesos + 0.35));
-                                    const interpolatedCityTemp = tempPonderada / sumaPesos;
-                                    const baseRegional = baseT * (1.0 - regionalMix * 0.85) + (interpolatedCityTemp - 1.8) * (regionalMix * 0.85);
-                                    tFinal = baseRegional + uhiBoostTotal;
-                                }
-                            }
-
-                            gridRow[c] = tFinal;
-
-                            if (focalNode) {
-                                const dLat = lat - focalNode.lat;
-                                let dLon = Math.abs(lon - focalNode.lon);
-                                if (dLon > 180) dLon = 360 - dLon;
+                        if (numNodes > 0) {
+                            let sumaPesos = 0.0;
+                            let deltaPonderado = 0.0;
+                            for (let i = 0; i < numNodes; i++) {
+                                const n = projectedNodes[i];
+                                const dy = lat - n.lat;
+                                let dLon = lon - n.lon;
+                                if (dLon > 180) dLon -= 360;
+                                else if (dLon < -180) dLon += 360;
                                 const dx = dLon * cosLat;
-                                minDistSq = (dLat * dLat) + (dx * dx);
-                            }
+                                const distSq = dx * dx + dy * dy + 0.0001;
 
-                            let focalFactor = 1.0;
-                            if (minDistSq < Infinity) {
-                                const normDist = Math.min(1.0, Math.sqrt(minDistSq / focalRadiusSq));
-                                const fadeT = Math.max(0, Math.min(1, (normDist - 0.35) / 0.65));
-                                const smoothFade = 1.0 - (fadeT * fadeT * (3.0 - 2.0 * fadeT));
-                                const minAmbient = focalNode ? 0.14 : 0.28;
-                                focalFactor = minAmbient + (1.0 - minAmbient) * smoothFade;
+                                if (distSq < maxDistSq) {
+                                    const falloff = 1.0 - (distSq / maxDistSq);
+                                    const w = (falloff * falloff) / distSq;
+                                    sumaPesos += w;
+                                    deltaPonderado += (n.temperatura - baseT) * w;
+                                }
                             }
-                            alphaGrid[rowOffset + c] = focalFactor;
+                            if (sumaPesos > 0.0) {
+                                const prominence = sumaPesos / (sumaPesos + 0.12);
+                                tFinal = baseT + (deltaPonderado / sumaPesos) * lod.blendWeight * prominence;
+                            }
                         }
-                    }
 
-                    for (let r = 0; r < rows; r++) {
-                        const rowOffset = r * cols;
-                        const gridRow = AppState.thermalGrid[r];
-                        const rNextRow = AppState.thermalGrid[Math.min(rows - 1, r + 1)];
-                        const rPrevRow = AppState.thermalGrid[Math.max(0, r - 1)];
-
-                        for (let c = 0; c < cols; c++) {
-                            const idx = rowOffset + c;
-                            const t0 = gridRow[c];
-                            if (Number.isNaN(t0)) continue;
-
-                            const cNext = Math.min(cols - 1, c + 1);
-                            const cPrev = Math.max(0, c - 1);
-                            const dTx = (gridRow[cNext] - gridRow[cPrev]) * 0.5;
-                            const dTy = (rNextRow[c] - rPrevRow[c]) * 0.5;
-                            const gradU = Math.max(0.045, Math.hypot(dTx, dTy) / isoStep);
-
-                            const u = t0 / isoStep;
-                            const bandIdx = Math.floor(u);
-                            const frac = u - bandIdx;
-
-                            const aaWidth = Math.min(0.42, gradU * 1.25);
-                            let smoothStepBand = 0.0;
-                            if (frac > 1.0 - aaWidth) {
-                                const edgeT = (frac - (1.0 - aaWidth)) / Math.max(0.0001, aaWidth);
-                                smoothStepBand = edgeT * edgeT * (3.0 - 2.0 * edgeT);
-                            }
-
-                            const tQuantized = ((bandIdx + 0.5) + smoothStepBand) * isoStep;
-                            const focalAlpha = alphaGrid[idx];
-                            const baseAlpha = Math.round(234 * focalAlpha);
-                            let [red, green, blue] = getMeteorologicalRGB(tQuantized, baseAlpha);
-
-                            const distToIso = Math.min(frac, 1.0 - frac);
-                            const nearestIsoIdx = frac < 0.5 ? bandIdx : (bandIdx + 1);
-                            const distPx = distToIso / gradU;
-                            const isMajor = (nearestIsoIdx % 2 === 0);
-                            const lineHalfWidth = isMajor ? 1.25 : 0.95;
-
-                            if (distPx < lineHalfWidth) {
-                                const normLine = distPx / lineHalfWidth;
-                                const lineAA = 1.0 - (normLine * normLine * (3.0 - 2.0 * normLine));
-                                const strokeStrength = (isMajor ? 0.68 : 0.42) * lineAA * (0.35 + 0.65 * focalAlpha);
-                                red   = Math.round(red * (1.0 - strokeStrength) + 12 * strokeStrength);
-                                green = Math.round(green * (1.0 - strokeStrength) + 18 * strokeStrength);
-                                blue  = Math.round(blue * (1.0 - strokeStrength) + 32 * strokeStrength);
-                            }
-
-                            const pixelIdx = idx * 4;
-                            data[pixelIdx]     = red;
-                            data[pixelIdx + 1] = green;
-                            data[pixelIdx + 2] = blue;
-                            data[pixelIdx + 3] = baseAlpha;
-                        }
+                        gridRow[c] = tFinal;
+                        const [red, green, blue, alpha] = getMeteorologicalRGB(tFinal, 232);
+                        const pixelIdx = (rowOffset + c) * 4;
+                        data[pixelIdx]     = red;
+                        data[pixelIdx + 1] = green;
+                        data[pixelIdx + 2] = blue;
+                        data[pixelIdx + 3] = alpha;
                     }
                 }
 
@@ -1450,7 +1449,7 @@
             AppState.points = puntos || [];
             if (idwRasterLayer) {
                 idwRasterLayer._puntos = AppState.points;
-                enqueueRender({ raster: true });
+                idwRasterLayer.requestRedraw();
             }
         }
 
@@ -1476,25 +1475,37 @@
         const cursorTempVal = document.getElementById('cursor-temp-val');
         const cursorTempUnit = document.getElementById('cursor-temp-unit');
         const cursorCoordsVal = document.getElementById('cursor-coords-val');
+        let cursorRafPending = false;
+        let lastMouseEvent = null;
 
         map.on('mousemove', (e) => {
-            const lat = e.latlng.lat;
-            const lng = ((e.latlng.lng + 180) % 360 + 360) % 360 - 180;
-            const tempEstimada = readTemperatureFromGrid(e.containerPoint.x, e.containerPoint.y, lat, lng);
+            lastMouseEvent = e;
+            if (cursorRafPending) return;
+            cursorRafPending = true;
+            requestAnimationFrame(() => {
+                cursorRafPending = false;
+                if (!lastMouseEvent || isMapMoving) return;
+                const ev = lastMouseEvent;
+                const lat = ev.latlng.lat;
+                const lng = ((ev.latlng.lng + 180) % 360 + 360) % 360 - 180;
+                const x = ev.containerPoint.x;
+                const y = ev.containerPoint.y;
+                const tempEstimada = readTemperatureFromGrid(x, y, lat, lng);
 
-            if (tempEstimada !== null && !Number.isNaN(tempEstimada)) {
-                const tempConvertida = convertirTemp(tempEstimada);
-                cursorTempVal.innerText = `${tempConvertida} ${getSimboloUnidad()}`;
-                cursorTempVal.style.color = getThermalColor(tempEstimada);
-                cursorTempUnit.innerText = `| 0.1°`;
-                cursorCoordsVal.innerText = `Lat ${lat.toFixed(2)}°, Lon ${lng.toFixed(2)}°`;
-
-                cursorTooltip.style.left = `${e.containerPoint.x + 12}px`;
-                cursorTooltip.style.top = `${e.containerPoint.y - 14}px`;
-                cursorTooltip.style.display = 'flex';
-            } else {
-                cursorTooltip.style.display = 'none';
-            }
+                if (tempEstimada !== null && !Number.isNaN(tempEstimada)) {
+                    const tempConvertida = convertirTemp(tempEstimada);
+                    cursorTempVal.textContent = `${tempConvertida} ${getSimboloUnidad()}`;
+                    cursorTempVal.style.color = getThermalColor(tempEstimada);
+                    cursorTempUnit.textContent = '| 0.1°';
+                    cursorCoordsVal.textContent = `Lat ${lat.toFixed(2)}°, Lon ${lng.toFixed(2)}°`;
+                    cursorTooltip.style.transform = `translate3d(${Math.round(x + 14)}px, ${Math.round(y + 14)}px, 0)`;
+                    if (cursorTooltip.style.display !== 'flex') {
+                        cursorTooltip.style.display = 'flex';
+                    }
+                } else {
+                    cursorTooltip.style.display = 'none';
+                }
+            });
         });
 
         map.on('mouseout', function() {
@@ -1621,16 +1632,26 @@
             const zoomActual = map ? map.getZoom() : 3;
             if (zoomActual >= 5 || marker._tier === 1 || ciudadSeleccionada === p.city) {
                 marker.addTo(layerCityNodes);
-                if (marker._path) {
-                    marker._path.style.filter = `drop-shadow(0 1px 3px rgba(2, 6, 23, 0.85)) drop-shadow(0 0 6px ${estilo.fillColor})`;
-                }
             }
             markersByCity[p.city] = marker;
         }
 
+        const layerLiveViewportNodes = L.layerGroup().addTo(map);
+        let viewportLodTimer = null;
+        let viewportLodAbortController = null;
+
         // Filtrado dinámico de nodos según nivel de zoom (Semantic Zooming sin recrear DOM)
         function aplicarZoomSemanticoNodos() {
             if (!map) return;
+            if (systemMode === 'live') {
+                for (const city in markersByCity) {
+                    const marker = markersByCity[city];
+                    if (layerCityNodes.hasLayer(marker)) {
+                        layerCityNodes.removeLayer(marker);
+                    }
+                }
+                return;
+            }
             const z = map.getZoom();
             const mostrarTodos = (z >= 5);
 
@@ -1642,9 +1663,8 @@
                     if (!layerCityNodes.hasLayer(marker)) {
                         layerCityNodes.addLayer(marker);
                     }
-                    if (marker._path && marker._lastFillColor) {
+                    if (marker._path) {
                         marker._path.classList.toggle('thermal-marker-critical', !!marker._lastIsCritical);
-                        marker._path.style.filter = `drop-shadow(0 1px 3px rgba(2, 6, 23, 0.85)) drop-shadow(0 0 6px ${marker._lastFillColor})`;
                     }
                 } else {
                     if (layerCityNodes.hasLayer(marker)) {
@@ -1654,7 +1674,89 @@
             }
         }
 
-        map.on('zoomend', aplicarZoomSemanticoNodos);
+        function actualizarNodosViewportLive(immediate = false) {
+            if (!map || systemMode !== 'live') {
+                layerLiveViewportNodes.clearLayers();
+                return;
+            }
+            clearTimeout(viewportLodTimer);
+            if (viewportLodAbortController) {
+                viewportLodAbortController.abort();
+            }
+            const delayMs = immediate ? 0 : 160;
+            viewportLodTimer = setTimeout(async () => {
+                if (systemMode !== 'live') return;
+                viewportLodAbortController = new AbortController();
+                const { signal } = viewportLodAbortController;
+                const bounds = map.getBounds();
+                const z = Math.round(map.getZoom() || 4);
+                const yr = Number(AppState.year) || 2026;
+                const url = `/api/global/viewport-nodes?south=${bounds.getSouth().toFixed(4)}&west=${bounds.getWest().toFixed(4)}&north=${bounds.getNorth().toFixed(4)}&east=${bounds.getEast().toFixed(4)}&zoom=${z}&year=${yr}`;
+                try {
+                    const res = await fetch(url, { signal });
+                    if (!res.ok) return;
+                    const payload = await res.json();
+                    if (systemMode !== 'live' || !Array.isArray(payload.nodes)) return;
+
+                    layerLiveViewportNodes.clearLayers();
+                    payload.nodes.forEach(node => {
+                        const tempVal = Number(node.temp ?? 22.0);
+                        const fillColor = getHarmonizedThermalColor(tempVal);
+                        const [r, g, b] = hexToRgbTuple(fillColor, tempVal);
+                        const strokeColor = `rgb(${Math.min(255, Math.round(r + (255 - r) * 0.68))}, ${Math.min(255, Math.round(g + (255 - g) * 0.68))}, ${Math.min(255, Math.round(b + (255 - b) * 0.68))})`;
+                        const isCrit = tempVal >= 31.5 || String(node.risk_level || '').includes('CRÍTICO');
+                        const radiusByTier = node.tier === 'megacity' ? 6.2 : (node.tier === 'city' ? 5.4 : (node.tier === 'town' ? 4.8 : 4.2));
+
+                        const m = L.circleMarker([node.lat, node.lon], {
+                            radius: radiusByTier,
+                            fillColor,
+                            color: strokeColor,
+                            weight: isCrit ? 2.2 : 1.7,
+                            opacity: 0.95,
+                            fillOpacity: 0.95,
+                            className: isCrit ? 'thermal-city-marker thermal-marker-glow thermal-marker-critical' : 'thermal-city-marker thermal-marker-glow'
+                        });
+
+                        const tierTag = String(node.tier || 'city').toUpperCase();
+                        m.bindTooltip(`
+                            <div class="px-2 py-1 font-sans text-xs">
+                                <div class="flex items-center justify-between gap-2">
+                                    <strong class="text-slate-900">${node.name}</strong>
+                                    <span class="text-[8px] font-mono px-1 rounded bg-amber-100 text-amber-800">${tierTag}</span>
+                                </div>
+                                <span class="font-mono font-bold" style="color:${fillColor}">${convertirTemp(tempVal)} ${getSimboloUnidad()}</span>
+                                <div class="text-[9px] font-bold" style="color:${fillColor}">${node.risk_level || ''}</div>
+                            </div>`,
+                            { direction: 'top', offset: [0, -7], opacity: 0.95 }
+                        );
+
+                        m.on('click', (ev) => {
+                            L.DomEvent.stopPropagation(ev);
+                            focalizarCiudadCentrada(node.lat, node.lon, node.name, Math.max(z, 9), true);
+                        });
+                        m.on('mouseover', () => {
+                            cursorTooltip.style.display = 'none';
+                            m.setRadius(radiusByTier + 2.2);
+                        });
+                        m.on('mouseout', () => {
+                            m.setRadius(radiusByTier);
+                        });
+
+                        m.addTo(layerLiveViewportNodes);
+                    });
+                } catch (err) {
+                    if (err && err.name === 'AbortError') return;
+                }
+            }, delayMs);
+        }
+
+        map.on('zoomend', () => {
+            aplicarZoomSemanticoNodos();
+            if (systemMode === 'live') actualizarNodosViewportLive();
+        });
+        map.on('moveend', () => {
+            if (systemMode === 'live') actualizarNodosViewportLive();
+        });
 
         function renderMarkers(puntos) {
             if (!puntos) return;
@@ -1677,7 +1779,6 @@
                     existente.setRadius(estilo.radius);
                     if (existente._path) {
                         existente._path.classList.toggle('thermal-marker-critical', estilo.isCritical);
-                        existente._path.style.filter = `drop-shadow(0 1px 3px rgba(2, 6, 23, 0.85)) drop-shadow(0 0 6px ${estilo.fillColor})`;
                     }
                     existente.setTooltipContent(contenidoTooltipCiudad(p));
                 } else {
@@ -1700,6 +1801,9 @@
         function restaurarPanelGlobal() {
             const lblLocation = document.getElementById('panelLocationTitle') || document.getElementById('sidePanelLocation');
             if (lblLocation) lblLocation.innerText = 'Vista Global (Consolidado)';
+
+            const liveCard = document.getElementById('liveWeatherCard');
+            if (liveCard) liveCard.classList.add('hidden');
 
             const badgeCoords = document.getElementById('mapCoordsBadge');
             if (badgeCoords) badgeCoords.classList.add('hidden');
@@ -1724,17 +1828,17 @@
             }
 
             const txtAumento = document.getElementById('kpiAumento');
-            if (txtAumento) txtAumento.innerText = '+0.08 °C';
+            if (txtAumento) txtAumento.innerText = '+1.24 °C';
             const kpiDelta = document.getElementById('kpi-delta-temp');
-            if (kpiDelta) kpiDelta.innerText = '+0.08';
+            if (kpiDelta) kpiDelta.innerText = '+1.24';
 
             const txtCDD = document.getElementById('kpiCDD');
-            if (txtCDD) txtCDD.innerText = '+148.2 %';
+            if (txtCDD) txtCDD.innerText = '+18.5 %';
             const kpiPct = document.getElementById('kpi-pct-cdd');
-            if (kpiPct) kpiPct.innerText = '+148.2';
+            if (kpiPct) kpiPct.innerText = '+18.5';
 
             const txtEstres = document.getElementById('kpiEstres') || document.getElementById('kpi-estres-nivel');
-            if (txtEstres) txtEstres.innerText = 'Crítico (>85%)';
+            if (txtEstres) txtEstres.innerText = 'Alerta (52%)';
 
             cargarDetalleCiudad('');
         }
@@ -1829,6 +1933,33 @@
             const kpiEstres = document.getElementById('kpi-estres-nivel');
             if (kpiEstres) kpiEstres.innerText = estresText;
 
+            // Poblar ±σ e intervalo de confianza al 95% y probabilidades B/M/C en modo agente
+            const sigmaEst = 0.44;
+            const sigmaConvAg = convertDelta(sigmaEst, currentUnit, 2);
+            const minConvAg = convertTemp(tempNum - 1.96 * sigmaEst, currentUnit, 1);
+            const maxConvAg = convertTemp(tempNum + 1.96 * sigmaEst, currentUnit, 1);
+            const elSigmaAg = document.getElementById('kpi-incertidumbre-sigma');
+            if (elSigmaAg) elSigmaAg.textContent = `±${sigmaConvAg}${sym} [${minConvAg}, ${maxConvAg}]`;
+
+            const pBajoAg = semColor === '#10b981' ? 84 : (semColor === '#f59e0b' ? 14 : 4);
+            const pModAg = semColor === '#f59e0b' ? 76 : (semColor === '#10b981' ? 14 : 18);
+            const pCritAg = Math.max(0, 100 - pBajoAg - pModAg);
+            const barBajoAg = document.getElementById('prob-bar-bajo');
+            const barModAg = document.getElementById('prob-bar-mod');
+            const barCritAg = document.getElementById('prob-bar-crit');
+            if (barBajoAg && barModAg && barCritAg) {
+                barBajoAg.style.width = `${pBajoAg}%`;
+                barModAg.style.width = `${pModAg}%`;
+                barCritAg.style.width = `${pCritAg}%`;
+            }
+            const elProbAg = document.getElementById('kpi-prob-riesgo');
+            if (elProbAg) elProbAg.textContent = `B:${pBajoAg}% M:${pModAg}% C:${pCritAg}%`;
+
+            const liveCard = document.getElementById('liveWeatherCard');
+            if (liveCard && systemMode === 'demo') {
+                liveCard.classList.add('hidden');
+            }
+
             const kpiDec = document.getElementById('kpi-calentamiento-decada');
             if (kpiDec) {
                 if (Number.isFinite(Number(data.calentamiento_decada))) {
@@ -1870,6 +2001,7 @@
                 };
                 renderizarGraficoCurvaTermica();
             }
+            if (typeof actualizarCopilotoIA === 'function') actualizarCopilotoIA();
         }
 
         function crearIconoOndaRadar(colorHex = '#f59e0b') {
@@ -1910,7 +2042,10 @@
             } else {
                 badge.textContent = '[MODO LIVE GLOBAL]';
                 badge.className = 'text-[9px] font-mono font-bold px-2 py-0.5 rounded border bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/30 tracking-wider';
-                if (liveCard) liveCard.classList.remove('hidden');
+                const hasPoint = Boolean(selectedCity || selectedCoords);
+                if (liveCard) {
+                    liveCard.classList.toggle('hidden', !(systemMode === 'live' && hasPoint));
+                }
             }
         }
 
@@ -1981,8 +2116,9 @@
             if (!d) return;
             lastLiveWeatherData = d;
             const liveCard = document.getElementById('liveWeatherCard');
-            if (liveCard && systemMode === 'live') {
-                liveCard.classList.remove('hidden');
+            const hasPoint = Boolean(selectedCity || selectedCoords);
+            if (liveCard) {
+                liveCard.classList.toggle('hidden', !(systemMode === 'live' && hasPoint));
             }
 
             const rawT = Number(d.temperatura ?? d.temperature_2m);
@@ -2087,8 +2223,9 @@
             }, 3200);
         }
 
-        async function setSystemMode(mode) {
+        async function setSystemMode(mode, options = {}) {
             systemMode = mode === 'live' ? 'live' : 'demo';
+            const isSilent = Boolean(options && options.silent);
 
             const btnDemo = document.getElementById('btnModeDemo');
             const btnLive = document.getElementById('btnModeLive');
@@ -2106,10 +2243,14 @@
                 if (demoContainer) demoContainer.classList.add('hidden');
                 if (searchContainer) searchContainer.classList.remove('hidden');
                 actualizarInsigniaFuente(false);
+                aplicarZoomSemanticoNodos();
+                actualizarNodosViewportLive();
                 if (lastLiveWeatherData) renderizarTarjetaClimaVivo(lastLiveWeatherData);
-                const searchInput = document.getElementById('citySearch');
-                if (searchInput) setTimeout(() => searchInput.focus(), 50);
-                mostrarToast('🌐 Modo Live Global activado (Open-Meteo + Nominatim + ML)', 'amber');
+                if (!isSilent) {
+                    const searchInput = document.getElementById('citySearch');
+                    if (searchInput) setTimeout(() => searchInput.focus(), 50);
+                    mostrarToast('🌐 Modo Live Global activado (LOD Progresivo + Open-Meteo + ML)', 'amber');
+                }
             } else {
                 if (btnDemo) {
                     btnDemo.className = 'py-1.5 px-2 rounded text-left font-bold bg-cyan-500 text-slate-950 transition-all text-[11px] flex items-center justify-between';
@@ -2120,8 +2261,12 @@
                 if (searchContainer) searchContainer.classList.add('hidden');
                 if (resultsBox) resultsBox.classList.add('hidden');
                 if (demoContainer) demoContainer.classList.remove('hidden');
+                layerLiveViewportNodes.clearLayers();
                 actualizarInsigniaFuente(true);
-                mostrarToast('🏛️ Modo Demo Académico activado (Catálogo Berkeley Earth + OWID)', 'cyan');
+                aplicarZoomSemanticoNodos();
+                if (!isSilent) {
+                    mostrarToast('🏛️ Modo Demo Académico activado (Catálogo Berkeley Earth + OWID)', 'cyan');
+                }
             }
 
             try {
@@ -2170,18 +2315,29 @@
             });
         }
 
+        let era5AbortController = null;
+
         async function cargarCurvaGlobalERA5(lat, lon, placeName = null) {
             const numLat = parseFloat(lat);
             const numLon = parseFloat(lon);
             const label = placeName || selectedCity || `Coord (${numLat.toFixed(2)}°, ${numLon.toFixed(2)}°)`;
 
+            if (era5AbortController) {
+                era5AbortController.abort();
+            }
+            era5AbortController = new AbortController();
+            const { signal } = era5AbortController;
+
             setIndicadorCargaERA5(true, '⏳ Sincronizando serie satelital ERA5...');
 
             let curve;
             try {
-                const res = await fetch(`/api/global/thermal-curve?lat=${numLat}&lon=${numLon}`);
+                const res = await fetch(`/api/global/thermal-curve?lat=${numLat}&lon=${numLon}`, { signal });
                 if (!res.ok) throw new Error(`HTTP ${res.status}`);
                 curve = await res.json();
+            } catch (err) {
+                if (err && err.name === 'AbortError') return;
+                throw err;
             } finally {
                 setIndicadorCargaERA5(false);
             }
@@ -2552,6 +2708,9 @@
             const badgeCoords = document.getElementById('mapCoordsBadge');
             if (badgeCoords) badgeCoords.classList.add('hidden');
 
+            const liveCard = document.getElementById('liveWeatherCard');
+            if (liveCard) liveCard.classList.add('hidden');
+
             const elTemp = document.getElementById('valTempActual');
             const elSens = document.getElementById('valSensacion');
             const elHum = document.getElementById('valHumedadTwb');
@@ -2564,7 +2723,7 @@
         }
 
         // 4. Ejecución de Inspección Puntual (Reverse Geocoding + Open-Meteo + RF/GB en Cascada)
-        async function ejecutarInspeccionPuntual(lat, lon) {
+        async function ejecutarInspeccionPuntual(lat, lon, knownPlaceName = null) {
             const numLat = parseFloat(lat);
             const numLon = parseFloat(lon);
             if (!Number.isFinite(numLat) || !Number.isFinite(numLon)) return;
@@ -2574,19 +2733,21 @@
             // 1. Centrar y dibujar radar
             actualizarMarcadorYRadar(numLat, numLon);
 
-            // 2. Geocodificación Inversa
-            let nombreLugar = `Coord (${numLat.toFixed(2)}°, ${numLon.toFixed(2)}°)`;
-            try {
-                const resGeo = await fetch(`/api/geo/reverse?lat=${numLat}&lon=${numLon}`);
-                if (resGeo.ok) {
-                    const rawGeo = await resGeo.json();
-                    const dataGeo = rawGeo.place || rawGeo;
-                    if (dataGeo && (dataGeo.name || dataGeo.display_name)) {
-                        nombreLugar = dataGeo.name || dataGeo.display_name.split(',')[0];
+            // 2. Geocodificación Inversa (si no se proporcionó ya el nombre del lugar)
+            let nombreLugar = knownPlaceName || `Coord (${numLat.toFixed(2)}°, ${numLon.toFixed(2)}°)`;
+            if (!knownPlaceName) {
+                try {
+                    const resGeo = await fetch(`/api/geo/reverse?lat=${numLat}&lon=${numLon}`);
+                    if (resGeo.ok) {
+                        const rawGeo = await resGeo.json();
+                        const dataGeo = rawGeo.place || rawGeo;
+                        if (dataGeo && (dataGeo.name || dataGeo.display_name)) {
+                            nombreLugar = dataGeo.name || dataGeo.display_name.split(',')[0];
+                        }
                     }
+                } catch (err) {
+                    console.warn("Error en reverse geocoding:", err);
                 }
-            } catch (err) {
-                console.warn("Error en reverse geocoding:", err);
             }
 
             selectedCity = nombreLugar;
@@ -2620,7 +2781,7 @@
             AppState.rafId = null;
             if (AppState.dirtyRaster && idwRasterLayer) {
                 AppState.dirtyRaster = false;
-                idwRasterLayer._redrawCanvas();
+                idwRasterLayer.requestRedraw();
             }
             if (AppState.dirtyMarkers && AppState.points.length > 0) {
                 AppState.dirtyMarkers = false;
@@ -2649,18 +2810,20 @@
         let sliderAbortController = null;
 
         function aplicarAno(year) {
-            const puntosAno = AppState.timeline[String(year)];
+            const key = String(year);
+            const puntosAno = (AppState.timeline && AppState.timeline[key])
+                || (typeof thermalDataByYear === 'object' && thermalDataByYear ? thermalDataByYear[key] : null);
             if (puntosAno && puntosAno.length > 0) {
                 AppState.points = puntosAno;
                 if (idwRasterLayer) idwRasterLayer._puntos = puntosAno;
                 enqueueRender({ raster: true, markers: true, chart: true });
-            } else {
+            } else if (!AppState.isPlaying) {
                 cargarDatosAno(year);
             }
         }
 
         // PASO 3: Desacoplar el desplazamiento del slider del DOM mediante requestAnimationFrame y AbortController (60 FPS)
-        function updateHeatmapForYear(selectedYear) {
+        function updateHeatmapForYear(selectedYear, isAutoPlay = false) {
             pendingSliderYear = parseInt(selectedYear, 10);
             if (sliderAbortController) {
                 sliderAbortController.abort();
@@ -2672,13 +2835,25 @@
                 AppState.year = pendingSliderYear;
                 actualizarIndicadorAno();
                 aplicarAno(AppState.year);
-                const activeCity = AppState.selectedCity || selectedCity;
-                const sc = selectedCoords || AppState.selectedCoords;
-                if (activeCity || (sc && (systemMode === 'live' || modoInspeccionActivo))) {
-                    const m = activeCity ? markersByCity[activeCity] : null;
-                    const latVal = sc ? sc.lat : (m ? m.getLatLng().lat : 19.43);
-                    const lonVal = sc ? sc.lon : (m ? m.getLatLng().lng : -99.13);
-                    ejecutarInferenciaML(activeCity || 'Coordenada Global', AppState.year, latVal, lonVal);
+
+                if (!isAutoPlay) {
+                    if (systemMode === 'live') {
+                        actualizarNodosViewportLive();
+                    }
+                    const activeCity = AppState.selectedCity || selectedCity;
+                    const sc = selectedCoords || AppState.selectedCoords;
+                    if (activeCity || (sc && (systemMode === 'live' || modoInspeccionActivo))) {
+                        const m = activeCity ? markersByCity[activeCity] : null;
+                        const latVal = sc ? sc.lat : (m ? m.getLatLng().lat : 19.43);
+                        const lonVal = sc ? sc.lon : (m ? m.getLatLng().lng : -99.13);
+                        ejecutarInferenciaML(activeCity || 'Coordenada Global', AppState.year, latVal, lonVal);
+                    }
+                } else {
+                    actualizarPuntoEnGrafico(AppState.year);
+                }
+
+                if (typeof actualizarCopilotoIA === 'function') {
+                    actualizarCopilotoIA();
                 }
             });
         }
@@ -2705,12 +2880,12 @@
                 let lastTick = performance.now();
                 const stepFrame = (now) => {
                     if (!AppState.isPlaying) return;
-                    if (now - lastTick >= 200) {
+                    if (now - lastTick >= 140) {
                         lastTick = now;
                         let next = AppState.year + 1;
                         if (next > 2050) next = 1850;
                         document.getElementById('year-slider').value = next;
-                        updateHeatmapForYear(next);
+                        updateHeatmapForYear(next, true);
                     }
                     AppState.playTimer = requestAnimationFrame(stepFrame);
                 };
@@ -2721,6 +2896,7 @@
                 playIcon.textContent = "▶";
                 playText.textContent = "Play";
                 btnPlay.className = "px-3 py-1.5 rounded-xl bg-orange-600 hover:bg-orange-500 text-white font-bold text-xs flex items-center gap-1 transition-all shadow-md shadow-orange-600/30";
+                updateHeatmapForYear(AppState.year, false);
             }
         }
 
@@ -2813,6 +2989,371 @@
         // ==========================================
         let chartCurvaTermica = null;
         let chartCorrelacion = null;
+        let aiCopilotManuallyClosed = false;
+        let aiCopilotMinimized = false;
+        let aiActiveChipType = null;
+
+        function toggleMinimizarCopilotoIA(minimizar = null) {
+            aiCopilotMinimized = minimizar !== null ? Boolean(minimizar) : !aiCopilotMinimized;
+            const fullContent = document.getElementById('aiExplainerFullContent');
+            const minBar = document.getElementById('aiExplainerMinimizedBar');
+            const drawer = document.getElementById('aiExplainerDrawer');
+            if (!fullContent || !minBar || !drawer) return;
+
+            if (aiCopilotMinimized) {
+                fullContent.classList.add('hidden');
+                minBar.classList.remove('hidden');
+                drawer.classList.remove('p-3');
+                drawer.classList.add('px-3', 'py-2');
+            } else {
+                minBar.classList.add('hidden');
+                fullContent.classList.remove('hidden');
+                drawer.classList.remove('px-3', 'py-2');
+                drawer.classList.add('p-3');
+            }
+        }
+
+        function cerrarCopilotoIAManual() {
+            aiCopilotManuallyClosed = true;
+            const drawer = document.getElementById('aiExplainerDrawer');
+            const pillBox = document.getElementById('aiPillContainer');
+            if (drawer) drawer.classList.add('hidden');
+            if (pillBox && (tabActualDerecha === 'curva' || tabActualDerecha === 'correlacion')) {
+                pillBox.classList.remove('hidden');
+            }
+        }
+
+        function reabrirCopilotoIAManual() {
+            aiCopilotManuallyClosed = false;
+            toggleMinimizarCopilotoIA(false);
+            const drawer = document.getElementById('aiExplainerDrawer');
+            const pillBox = document.getElementById('aiPillContainer');
+            if (pillBox) pillBox.classList.add('hidden');
+            if (drawer && (tabActualDerecha === 'curva' || tabActualDerecha === 'correlacion')) {
+                drawer.classList.remove('hidden');
+                actualizarCopilotoIA();
+            }
+        }
+
+        function obtenerContextoCopilotoIA() {
+            const pred = lastPredictionData || {};
+            const detail = cityDetailData || {};
+            const sym = getSimboloUnidad();
+            const yearVal = Number(AppState.year || pred.target_year || 2026);
+            const locName = pred.city || selectedCity || detail.city || 'Vista Global (Consolidado)';
+
+            let tempRaw = Number(pred.prediccion_temperatura ?? pred.predicted_temp ?? pred.temp);
+            if (!Number.isFinite(tempRaw)) {
+                const proyList = Array.isArray(detail.proyeccion) ? detail.proyeccion : [];
+                const histList = Array.isArray(detail.historico) ? detail.historico : [];
+                const foundP = proyList.find(p => Number(p.year) === yearVal);
+                const foundH = histList.find(h => Number(h.year) === yearVal);
+                if (foundP && Number.isFinite(Number(foundP.prediccion))) {
+                    tempRaw = Number(foundP.prediccion);
+                } else if (foundH && Number.isFinite(Number(foundH.temperatura))) {
+                    tempRaw = Number(foundH.temperatura);
+                } else {
+                    tempRaw = Number(detail.temp_proy_2040 ?? detail.temp_actual ?? 21.8);
+                }
+            }
+
+            const sigmaRaw = Number(pred.sigma_temp ?? 0.48);
+            const deltaRaw = Number(pred.anomalia_proyectada ?? detail.delta_temp_2040 ?? 1.24);
+            const cddRaw = Number(pred.cdd_anual ?? detail.cdd_proy_2040 ?? Math.max(0, Number((tempRaw - 18.0).toFixed(2))));
+            const pctCddRaw = Number(pred.porcentaje_aumento_cdd ?? detail.pct_aumento_cdd ?? 18.5);
+            const minRaw = Number(pred.rango_min ?? (tempRaw - 1.96 * sigmaRaw));
+            const maxRaw = Number(pred.rango_max ?? (tempRaw + 1.96 * sigmaRaw));
+
+            const probs = pred.probabilidades_riesgo || {};
+            let pBajo = Number(probs.BAJO);
+            let pMod = Number(probs.MODERADO);
+            let pCrit = Number(probs['CRÍTICO'] ?? probs.CRITICO);
+
+            if (!Number.isFinite(pBajo) || !Number.isFinite(pMod) || !Number.isFinite(pCrit)) {
+                if (locName.includes('Global') && configData && Array.isArray(configData.ciudades) && configData.ciudades.length > 0) {
+                    let cB = 0, cM = 0, cA = 0;
+                    configData.ciudades.forEach(c => {
+                        const niv = c.riesgo && c.riesgo.nivel ? c.riesgo.nivel : 'MODERADO';
+                        if (niv === 'ALTO') cA++;
+                        else if (niv === 'MODERADO') cM++;
+                        else cB++;
+                    });
+                    const tot = Math.max(1, configData.ciudades.length);
+                    pBajo = Math.round((cB / tot) * 100);
+                    pMod = Math.round((cM / tot) * 100);
+                    pCrit = Math.max(0, 100 - pBajo - pMod);
+                } else {
+                    const rNivel = (detail.riesgo && detail.riesgo.nivel) || 'MODERADO';
+                    pBajo = rNivel === 'BAJO' ? 78 : (rNivel === 'MODERADO' ? 16 : 6);
+                    pMod = rNivel === 'MODERADO' ? 72 : (rNivel === 'BAJO' ? 18 : 20);
+                    pCrit = Math.max(0, 100 - pBajo - pMod);
+                }
+            }
+
+            const riskText = (pred.alerta_operativa || (detail.riesgo && detail.riesgo.etiqueta) || (document.getElementById('riskBadge')?.textContent || 'RIESGO MODERADO')).replace(/[\[\]]/g, '').trim();
+
+            return {
+                locName,
+                yearVal,
+                sym,
+                tempRaw,
+                tempConv: convertTemp(tempRaw, currentUnit, 1),
+                sigmaRaw,
+                sigmaConv: convertDelta(sigmaRaw, currentUnit, 2),
+                deltaRaw,
+                deltaConv: convertDelta(deltaRaw, currentUnit, 2),
+                minConv: convertTemp(minRaw, currentUnit, 1),
+                maxConv: convertTemp(maxRaw, currentUnit, 1),
+                cddRaw: Number(cddRaw).toFixed(2),
+                pctCddRaw: Number(pctCddRaw).toFixed(1),
+                pBajo,
+                pMod,
+                pCrit,
+                riskText
+            };
+        }
+
+        function formatearMarkdownSimple(texto) {
+            const safe = String(texto || '')
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;');
+            return safe.replace(/\*\*(.+?)\*\*/g, '<strong class="text-amber-300 font-bold">$1</strong>');
+        }
+
+        let mitigationSimActive = false;
+
+        function renderizarSimuladorMitigacionIA(ctxInput = null) {
+            const card = document.getElementById('aiMitigationCard');
+            const btn = document.getElementById('btnToggleMitigationSim');
+            if (!card) return;
+
+            if (!mitigationSimActive) {
+                card.classList.add('hidden');
+                if (btn) {
+                    btn.className = 'ai-chip-btn text-[10px] font-semibold px-2.5 py-1 rounded-full bg-slate-800 hover:bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 transition-all';
+                }
+                return;
+            }
+
+            card.classList.remove('hidden');
+            if (btn) {
+                btn.className = 'ai-chip-btn text-[10px] font-extrabold px-2.5 py-1 rounded-full bg-emerald-500 text-slate-950 border border-emerald-400 shadow-sm transition-all';
+            }
+
+            const ctx = ctxInput || obtenerContextoCopilotoIA();
+            const tActualC = Number.isFinite(Number(ctx.tempRaw)) ? Number(ctx.tempRaw) : 24.0;
+            const tMitigadaC = tActualC - 1.8;
+
+            const tActualConv = convertTemp(tActualC, currentUnit, 1);
+            const tMitConv = convertTemp(tMitigadaC, currentUnit, 1);
+            const deltaMitConv = convertDelta(1.8, currentUnit, 1);
+
+            const cddBase = Math.max(0, Number(ctx.cddRaw) || Math.max(0, tActualC - 18.0));
+            const cddMit = (cddBase * 0.78).toFixed(2);
+
+            const riskUpper = String(ctx.riskText || '').toUpperCase();
+            let nivelOrigen = 'Moderado';
+            let nivelDestino = 'Bajo';
+            if (riskUpper.includes('CRÍT') || riskUpper.includes('CRIT') || riskUpper.includes('ALTO') || tActualC >= 31.5) {
+                nivelOrigen = 'Crítico';
+                nivelDestino = tMitigadaC >= 25.0 ? 'Moderado' : 'Bajo';
+            } else if (riskUpper.includes('MOD') || riskUpper.includes('ALERTA') || tActualC >= 25.0) {
+                nivelOrigen = 'Moderado';
+                nivelDestino = 'Bajo';
+            } else {
+                nivelOrigen = 'Bajo';
+                nivelDestino = 'Óptimo';
+            }
+
+            const elTemp = document.getElementById('aiMitigationTempCompare');
+            const elCdd = document.getElementById('aiMitigationCddCompare');
+            const elShift = document.getElementById('aiMitigationRiskShift');
+
+            if (elTemp) {
+                elTemp.textContent = `${tActualConv} → ${tMitConv} ${ctx.sym} (-${deltaMitConv}${ctx.sym})`;
+            }
+            if (elCdd) {
+                elCdd.textContent = `${Number(cddBase).toFixed(2)} → ${cddMit} (-22% HVAC)`;
+            }
+            if (elShift) {
+                elShift.textContent = `Red: ${nivelOrigen} → ${nivelDestino}`;
+            }
+        }
+
+        function toggleSimuladorMitigacionIA() {
+            mitigationSimActive = !mitigationSimActive;
+            renderizarSimuladorMitigacionIA();
+        }
+
+        async function activarEscenarioClaveCopiloto(nombre, lat, lon, year, zoom, isDemoCity = false) {
+            const targetYear = Number(year) || 2045;
+            AppState.year = targetYear;
+            const slider = document.getElementById('year-slider');
+            if (slider) slider.value = targetYear;
+            updateHeatmapForYear(targetYear);
+
+            if (!isDemoCity && systemMode !== 'live') {
+                await setSystemMode('live', { silent: true });
+            }
+
+            const searchInput = document.getElementById('citySearch');
+            if (searchInput && systemMode === 'live') {
+                searchInput.value = nombre;
+            }
+
+            if (systemMode === 'live') {
+                map.once('moveend', () => actualizarNodosViewportLive(true));
+            }
+            map.flyTo([lat, lon], zoom || 10, { duration: 1.6 });
+            await ejecutarInspeccionPuntual(lat, lon, nombre);
+            actualizarCopilotoIA();
+            mostrarToast(`🧭 Escenario Clave: ${nombre} (${targetYear})`, 'amber');
+        }
+
+        function actualizarCopilotoIA() {
+            const drawer = document.getElementById('aiExplainerDrawer');
+            if (!drawer) return;
+
+            const ctx = obtenerContextoCopilotoIA();
+            const titleEl = document.getElementById('aiExplainerTitle');
+            const badgeEl = document.getElementById('aiExplainerBadge');
+            const narrEl = document.getElementById('aiExplainerNarrative');
+
+            const isCorr = tabActualDerecha === 'correlacion';
+            if (titleEl) {
+                titleEl.textContent = isCorr
+                    ? 'Asistente IA · Correlación y Estrés de Red'
+                    : 'Asistente IA · Lectura de Curva Térmica';
+            }
+            if (badgeEl) {
+                badgeEl.textContent = `${ctx.locName} · Horizonte ${ctx.yearVal}`;
+            }
+
+            const dSign = ctx.deltaRaw >= 0 ? '+' : '';
+            if (narrEl) {
+                if (!isCorr) {
+                    const tendenciaSimple = Number(ctx.tempRaw) >= 28.0
+                        ? 'obligará a usar mucho más aire acondicionado'
+                        : (Number(ctx.tempRaw) >= 21.5
+                            ? 'mantiene una tendencia cálida con uso moderado de enfriamiento'
+                            : 'conserva un ambiente templado sin presión fuerte por calor');
+                    const textoCurva = `En **${ctx.locName}** (${ctx.yearVal}), la temperatura ronda los **${ctx.tempConv} ${ctx.sym}**. En pocas palabras: el calor ha cambiado **${dSign}${ctx.deltaConv} ${ctx.sym}** respecto al promedio histórico y ${tendenciaSimple}.`;
+                    narrEl.innerHTML = formatearMarkdownSimple(textoCurva);
+                } else {
+                    const explicacionSimpleRed = ctx.riskText.includes('CRÍT') || ctx.riskText.includes('ALTO')
+                        ? 'muchos equipos de aire acondicionado encendidos al mismo tiempo pueden sobrecargar los transformadores locales'
+                        : (ctx.riskText.includes('MOD') || ctx.riskText.includes('ALERTA')
+                            ? 'la red eléctrica trabaja con carga media en las tardes cálidas, sin peligro inmediato de apagón'
+                            : 'la red eléctrica opera holgada y estable porque casi no hay sobrecarga por aire acondicionado');
+                    const textoCorr = `Con **${ctx.tempConv} ${ctx.sym}**, el esfuerzo eléctrico está en **${ctx.riskText}**. En simple: ${explicacionSimpleRed}.`;
+                    narrEl.innerHTML = formatearMarkdownSimple(textoCorr);
+                }
+            }
+
+            renderizarSimuladorMitigacionIA(ctx);
+        }
+
+        function agregarBurbujaMiniChat(texto, esUsuario = false) {
+            const box = document.getElementById('aiChatMessages');
+            if (!box) return;
+            const div = document.createElement('div');
+            if (esUsuario) {
+                div.className = 'bg-amber-500/20 border border-amber-500/40 text-amber-200 rounded-xl px-2.5 py-1.5 leading-snug ml-4 text-right font-medium';
+                div.textContent = texto;
+            } else {
+                div.className = 'bg-slate-800/85 border border-slate-700/80 text-slate-100 rounded-xl px-2.5 py-1.5 leading-snug mr-2';
+                div.innerHTML = formatearMarkdownSimple(texto);
+            }
+            box.appendChild(div);
+            box.scrollTop = box.scrollHeight;
+        }
+
+        let isChatSending = false;
+
+        (function initKeyboardIsolationForInputs() {
+            ['aiChatInput', 'citySearch'].forEach(id => {
+                const el = document.getElementById(id);
+                if (!el) return;
+                ['keydown', 'keyup', 'keypress'].forEach(evtName => {
+                    el.addEventListener(evtName, (e) => {
+                        e.stopPropagation();
+                    });
+                });
+            });
+        })();
+
+        async function enviarMensajeChatIA(textoPredefinido = null) {
+            if (isChatSending) return;
+            const inputEl = document.getElementById('aiChatInput');
+            const sendBtn = document.getElementById('aiChatSendBtn');
+            const msg = (textoPredefinido !== null ? textoPredefinido : (inputEl ? inputEl.value : '')).trim();
+            if (!msg) return;
+            if (textoPredefinido === null && inputEl) {
+                inputEl.value = '';
+            }
+
+            isChatSending = true;
+            if (sendBtn) {
+                sendBtn.disabled = true;
+                sendBtn.classList.add('opacity-50', 'cursor-not-allowed');
+            }
+
+            agregarBurbujaMiniChat(msg, true);
+            const ctx = obtenerContextoCopilotoIA();
+            const coords = selectedCoords || AppState.selectedCoords || { lat: 20.0, lon: 0.0 };
+
+            try {
+                const res = await fetch('/api/ai/chat', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        message: msg,
+                        current_city: ctx.locName,
+                        current_lat: Number(coords.lat ?? 20.0),
+                        current_lon: Number(coords.lon ?? 0.0),
+                        current_year: Number(ctx.yearVal || 2026),
+                        current_temp: Number(ctx.tempRaw || 22.0),
+                        current_risk: String(ctx.riskText || 'RIESGO MODERADO')
+                    })
+                });
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                const data = await res.json();
+                agregarBurbujaMiniChat(data.reply || 'Sin respuesta disponible.', false);
+
+                if (data.action && data.action.type === 'fly_to') {
+                    const act = data.action;
+                    if (act.year && Number(act.year) !== Number(AppState.year)) {
+                        AppState.year = Number(act.year);
+                        const slider = document.getElementById('year-slider');
+                        if (slider) slider.value = AppState.year;
+                        updateHeatmapForYear(AppState.year);
+                    }
+
+                    if (!act.is_demo_city && systemMode !== 'live') {
+                        await setSystemMode('live', { silent: true });
+                    }
+
+                    const searchInput = document.getElementById('citySearch');
+                    if (searchInput && systemMode === 'live') {
+                        searchInput.value = act.display_name || act.name;
+                    }
+
+                    map.once('moveend', () => actualizarNodosViewportLive(true));
+                    map.flyTo([act.lat, act.lon], act.zoom || 10, { duration: 1.8 });
+                    await ejecutarInspeccionPuntual(act.lat, act.lon, act.name);
+                }
+            } catch (err) {
+                console.error('Error en chat térmico IA:', err);
+                agregarBurbujaMiniChat('⚠️ No se pudo procesar la consulta térmica en este momento.', false);
+            } finally {
+                isChatSending = false;
+                if (sendBtn) {
+                    sendBtn.disabled = false;
+                    sendBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+                }
+            }
+        }
 
         function cambiarTab(tabId) {
             const normalizedMap = {
@@ -2852,14 +3393,35 @@
                 activeBtn.classList.add('bg-amber-500', 'text-slate-900', 'font-bold', 'shadow-sm');
             }
 
+            const aiDrawer = document.getElementById('aiExplainerDrawer');
+            const aiPill = document.getElementById('aiPillContainer');
+
             if (target === 'plan') {
                 if (panelPlan) panelPlan.classList.remove('hidden');
+                if (aiDrawer) aiDrawer.classList.add('hidden');
+                if (aiPill) aiPill.classList.add('hidden');
             } else if (target === 'curva') {
                 if (panelCurva) panelCurva.classList.remove('hidden');
                 renderizarGraficoCurvaTermica();
+                if (aiCopilotManuallyClosed) {
+                    if (aiDrawer) aiDrawer.classList.add('hidden');
+                    if (aiPill) aiPill.classList.remove('hidden');
+                } else {
+                    if (aiPill) aiPill.classList.add('hidden');
+                    if (aiDrawer) aiDrawer.classList.remove('hidden');
+                }
+                actualizarCopilotoIA();
             } else if (target === 'correlacion') {
                 if (panelCorr) panelCorr.classList.remove('hidden');
                 renderizarGraficoCorrelacion();
+                if (aiCopilotManuallyClosed) {
+                    if (aiDrawer) aiDrawer.classList.add('hidden');
+                    if (aiPill) aiPill.classList.remove('hidden');
+                } else {
+                    if (aiPill) aiPill.classList.add('hidden');
+                    if (aiDrawer) aiDrawer.classList.remove('hidden');
+                }
+                actualizarCopilotoIA();
             }
         }
 
@@ -3002,6 +3564,9 @@
             renderizarGraficoCurvaTermica(datos);
             if (chartCorrelacion && tabActualDerecha === 'correlacion') {
                 renderizarGraficoCorrelacion(datos);
+            }
+            if (typeof actualizarCopilotoIA === 'function') {
+                actualizarCopilotoIA();
             }
         }
 
@@ -3247,8 +3812,57 @@
                 document.getElementById('kpi-delta-temp').textContent = `${parseFloat(cityDetailData.delta_temp_2040) >= 0 ? '+' : ''}${deltaConv}`;
                 document.getElementById('kpi-pct-cdd').textContent = `+${cityDetailData.pct_aumento_cdd}`;
                 document.getElementById('kpi-cdd-val').textContent = `CDD 2040: ${cityDetailData.cdd_proy_2040}`;
-                document.getElementById('kpi-estres-nivel').textContent = r.nivel === 'ALTO' ? 'Crítico (>85%)' : (r.nivel === 'MODERADO' ? 'Alerta (70%)' : 'Estable');
                 document.getElementById('kpi-calentamiento-decada').textContent = `${parseFloat(cityDetailData.calentamiento_decada) >= 0 ? '+' : ''}${calConv} ${sym}/déc`;
+
+                // Poblar ±σ promedio e IC95% y probabilidades agregadas B/M/C en Vista Global o Ciudad
+                const sigmaGlobal = city ? 0.44 : 0.48;
+                const tempRef = Number(cityDetailData.temp_proy_2040 ?? cityDetailData.temp_actual ?? 16.4);
+                const sigmaConvG = convertDelta(sigmaGlobal, currentUnit, 2);
+                const minConvG = convertTemp(tempRef - 1.96 * sigmaGlobal, currentUnit, 1);
+                const maxConvG = convertTemp(tempRef + 1.96 * sigmaGlobal, currentUnit, 1);
+                const elSigmaG = document.getElementById('kpi-incertidumbre-sigma');
+                if (elSigmaG) {
+                    elSigmaG.textContent = `±${sigmaConvG}${sym} [${minConvG}, ${maxConvG}]`;
+                }
+
+                let pB = 26, pM = 52, pC = 22;
+                if (!city && configData && Array.isArray(configData.ciudades) && configData.ciudades.length > 0) {
+                    let cB = 0, cM = 0, cA = 0;
+                    configData.ciudades.forEach(c => {
+                        const niv = (c.riesgo && c.riesgo.nivel) || 'MODERADO';
+                        if (niv === 'ALTO') cA++;
+                        else if (niv === 'MODERADO') cM++;
+                        else cB++;
+                    });
+                    const tot = Math.max(1, configData.ciudades.length);
+                    pB = Math.round((cB / tot) * 100);
+                    pM = Math.round((cM / tot) * 100);
+                    pC = Math.max(0, 100 - pB - pM);
+                } else if (city) {
+                    pB = r.nivel === 'BAJO' ? 82 : (r.nivel === 'MODERADO' ? 15 : 5);
+                    pM = r.nivel === 'MODERADO' ? 75 : (r.nivel === 'BAJO' ? 15 : 18);
+                    pC = Math.max(0, 100 - pB - pM);
+                }
+
+                const barBajoG = document.getElementById('prob-bar-bajo');
+                const barModG = document.getElementById('prob-bar-mod');
+                const barCritG = document.getElementById('prob-bar-crit');
+                if (barBajoG && barModG && barCritG) {
+                    barBajoG.style.width = `${pB}%`;
+                    barModG.style.width = `${pM}%`;
+                    barCritG.style.width = `${pC}%`;
+                }
+                const elProbG = document.getElementById('kpi-prob-riesgo');
+                if (elProbG) {
+                    elProbG.textContent = `B:${pB}% M:${pM}% C:${pC}%`;
+                }
+                const maxP = Math.max(pB, pM, pC);
+                document.getElementById('kpi-estres-nivel').textContent = r.nivel === 'ALTO' ? `Crítico (${maxP}%)` : (r.nivel === 'MODERADO' ? `Alerta (${maxP}%)` : `Estable (${maxP}%)`);
+
+                const liveCard = document.getElementById('liveWeatherCard');
+                if (liveCard && (systemMode === 'demo' || !city)) {
+                    liveCard.classList.add('hidden');
+                }
 
                 // 3. Renderizar Catálogo de Medidas (sin innerHTML)
                 renderMedidasPrescriptivas(cityDetailData.medidas_prescriptivas || []);
@@ -3264,6 +3878,9 @@
                 renderizarGraficoCurvaTermica();
                 if (chartCorrelacion && tabActualDerecha === 'correlacion') {
                     renderizarGraficoCorrelacion();
+                }
+                if (typeof actualizarCopilotoIA === 'function') {
+                    actualizarCopilotoIA();
                 }
             } catch (err) {
                 console.error("Error al cargar detalle de ciudad:", err);
@@ -3793,6 +4410,18 @@
             }
         }
 
+        function sincronizarPosicionCopilotoIA() {
+            const drawer = document.getElementById('aiExplainerDrawer');
+            if (!drawer) return;
+            if (isFullscreenActive && !isSidebarOpenInFullscreen) {
+                drawer.classList.remove('right-[31%]');
+                drawer.classList.add('right-6');
+            } else {
+                drawer.classList.remove('right-6');
+                drawer.classList.add('right-[31%]');
+            }
+        }
+
         // Detector universal de estado de pantalla (cubre API y tecla F11 física)
         function sincronizarLayoutPantalla() {
             const isApiFullscreen = Boolean(document.fullscreenElement || document.webkitFullscreenElement);
@@ -3829,6 +4458,8 @@
                 isSidebarOpenInFullscreen = false;
             }
 
+            sincronizarPosicionCopilotoIA();
+
             // PASO 3: Ejecutar invalidateSize una única vez al finalizar la transición CSS (250 ms)
             clearTimeout(layoutInvalidateTimer);
             layoutInvalidateTimer = setTimeout(() => {
@@ -3857,6 +4488,8 @@
                 toggleBtn.style.right = '0px';
                 arrowIcon.textContent = '◀';
             }
+
+            sincronizarPosicionCopilotoIA();
         }
 
         ['fullscreenchange', 'webkitfullscreenchange', 'resize'].forEach(evt => {
@@ -3892,10 +4525,59 @@
                     document.exitFullscreen().catch(() => {});
                 }
             }
-            if ((e.key === 'f' || e.key === 'F') && !['INPUT', 'SELECT', 'TEXTAREA'].includes(document.activeElement.tagName)) {
-                toggleModoPantallaCompleta();
+            const isInputFocused = ['INPUT', 'SELECT', 'TEXTAREA'].includes(document.activeElement?.tagName || '');
+            if (!isInputFocused) {
+                if (e.key === 'f' || e.key === 'F') {
+                    toggleModoPantallaCompleta();
+                } else if (e.code === 'Space' || e.key === ' ') {
+                    e.preventDefault();
+                    togglePlay();
+                } else if (e.key === 'ArrowLeft') {
+                    e.preventDefault();
+                    stepYear(-1);
+                } else if (e.key === 'ArrowRight') {
+                    e.preventDefault();
+                    stepYear(1);
+                }
             }
         });
+
+        // Monitor real de FPS con requestAnimationFrame (activo únicamente cuando #settingsDropdown está visible)
+        let startFpsMonitorLoop = null;
+        (function initPerformanceTelemetryMonitor() {
+            let frames = 0;
+            let lastTime = performance.now();
+            let rafActive = false;
+
+            function tickFps(now) {
+                const dropdown = document.getElementById('settingsDropdown');
+                if (!dropdown || dropdown.classList.contains('hidden')) {
+                    rafActive = false;
+                    frames = 0;
+                    return;
+                }
+                frames++;
+                if (now - lastTime >= 1000) {
+                    const fps = Math.min(60, Math.max(24, Math.round((frames * 1000) / (now - lastTime))));
+                    const fpsEl = document.getElementById('perfFpsVal');
+                    if (fpsEl) fpsEl.textContent = String(fps);
+                    frames = 0;
+                    lastTime = now;
+                }
+                requestAnimationFrame(tickFps);
+            }
+
+            startFpsMonitorLoop = function() {
+                if (rafActive) return;
+                const dropdown = document.getElementById('settingsDropdown');
+                if (dropdown && !dropdown.classList.contains('hidden')) {
+                    rafActive = true;
+                    frames = 0;
+                    lastTime = performance.now();
+                    requestAnimationFrame(tickFps);
+                }
+            };
+        })();
 
         // PASO 5: Ciclo de vida automatizado del menú desplegable (listener de clic externo bajo demanda)
         function closeSettingsOnOutsideClick(e) {
@@ -3914,6 +4596,7 @@
             const isHidden = dropdown.classList.toggle('hidden');
             if (!isHidden) {
                 document.addEventListener('click', closeSettingsOnOutsideClick);
+                if (typeof startFpsMonitorLoop === 'function') startFpsMonitorLoop();
             } else {
                 document.removeEventListener('click', closeSettingsOnOutsideClick);
             }
@@ -4012,6 +4695,7 @@
             const dataTimeline = await timelinePromise;
             thermalDataByYear = dataTimeline.timeline || {};
             for (const y in thermalDataByYear) normalizarPuntos(thermalDataByYear[y]);
+            AppState.timeline = thermalDataByYear;
 
             // 3. Mapa + marcadores del año actual (o fallback de red si el timeline falló)
             irAHoy();

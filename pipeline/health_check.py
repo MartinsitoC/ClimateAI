@@ -189,7 +189,16 @@ def check_3_cache_sqlite() -> Tuple[bool, str]:
                 )
                 """
             )
-        detalle = "Tablas places_cache e historical_climate_cache sincronizadas"
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS viewport_nodes_cache (
+                    tile_key TEXT PRIMARY KEY,
+                    nodes_json TEXT,
+                    timestamp DATETIME
+                )
+                """
+            )
+        detalle = "Tablas places_cache, historical_climate_cache y viewport_nodes_cache sincronizadas"
         print_status("3. Base de Datos SQLite (geo_cache.db)", True, detalle)
         return True, detalle
     except Exception as e:
